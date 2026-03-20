@@ -1,3 +1,5 @@
+/* eslint-disable no-unused-vars */
+/* eslint-disable react/prop-types */
 import React, { useState, useEffect } from 'react';
 import { 
   Home, ShoppingCart, Package, Users, FileText, 
@@ -74,10 +76,10 @@ const LoginView = ({ onLogin, showAlert }) => {
 
   return (
     <div className="flex h-screen w-full items-center justify-center bg-gray-100 font-sans text-gray-900">
-      <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-sm">
+      <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-sm px-4">
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-gray-900 rounded-2xl flex items-center justify-center font-bold text-4xl text-white mb-4 shadow-md">P</div>
-          <h1 className="text-2xl font-bold text-gray-900">POS SYSTEM</h1>
+          <h1 className="text-2xl font-bold">POS SYSTEM</h1>
           <p className="text-gray-500 text-sm">의류 도매 매장관리 시스템</p>
         </div>
         <form onSubmit={handleLogin} className="space-y-4">
@@ -111,17 +113,34 @@ export default function App() {
   const goBack = () => setMenuHistory(prev => (prev.length <= 1 ? prev : prev.slice(0, -1)));
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
-  const [menuOrder] = useState(Object.keys(MENU_CONFIG));
+  const [menuOrder, setMenuOrder] = useState(Object.keys(MENU_CONFIG));
   const [fbUser, setFbUser] = useState(null);
 
   // 실사용 데이터 상태
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [dailySales, setDailySales] = useState([]);
+  const [misongList, setMisongList] = useState([]);
+  const [sampleList, setSampleList] = useState([]);
+  const [monthlySales, setMonthlySales] = useState([]);
+  const [restockHistory, setRestockHistory] = useState([]);
   
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [salesCategoryTab, setSalesCategoryTab] = useState('전체');
+  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
   const [transactionDate, setTransactionDate] = useState(getTodayStr());
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
+
+  // 폼 상태
+  const [addProductForm, setAddProductForm] = useState({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '' });
+  const [addCustomerForm, setAddCustomerForm] = useState({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
+  const [productEditForm, setProductEditForm] = useState({});
+  const [customerEditForm, setCustomerEditForm] = useState({});
+  
+  const [selectedProduct, setSelectedProduct] = useState(null); 
+  const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null); 
+  const [productDetailEditMode, setProductDetailEditMode] = useState(false);
+  const [customerDetailEditMode, setCustomerDetailEditMode] = useState(false);
 
   const showAlert = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'alert', message, onConfirm });
   const showConfirm = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'confirm', message, onConfirm });
@@ -135,6 +154,14 @@ export default function App() {
   const deleteItem = (col, id) => {
     if (!db || !fbUser) return;
     deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', col, id)).catch(console.error);
+  };
+
+  // 상세 보기 및 핸들러
+  const handleGoToProductDetail = (p, editMode = false) => {
+    setSelectedProduct(p); setProductEditForm(p); setProductDetailEditMode(editMode); navigateTo('productDetail');
+  };
+  const handleGoToCustomerDetail = (c, editMode = false) => {
+    setSelectedCustomerDetail(c); setCustomerEditForm(c); setCustomerDetailEditMode(editMode); navigateTo('customerDetail');
   };
 
   // 초기화 및 실시간 데이터 구독
@@ -154,6 +181,10 @@ export default function App() {
     const unsubs = [
       sub('products', setProducts, (a,b) => a.id.localeCompare(b.id)),
       sub('customers', setCustomers, (a,b) => a.id.localeCompare(b.id)),
+      sub('misong', setMisongList, (a,b) => b.id.localeCompare(a.id)),
+      sub('samples', setSampleList, (a,b) => b.id.localeCompare(a.id)),
+      sub('monthlySales', setMonthlySales, (a,b) => b.date.localeCompare(a.date)),
+      sub('restockHistory', setRestockHistory, (a,b) => b.date !== a.date ? b.date.localeCompare(a.date) : b.time.localeCompare(a.time)),
       sub('dailySales', setDailySales, (a,b) => b.date !== a.date ? b.date.localeCompare(a.date) : b.time.localeCompare(a.time)),
     ];
     return () => unsubs.forEach(u => u());
@@ -321,10 +352,11 @@ export default function App() {
             {products.map(p => (
               <tr key={p.id} className="hover:bg-gray-50">
                 <td className="p-4 font-medium">{p.id}</td>
-                <td className="p-4 font-bold text-blue-600">{p.name} ({p.color})</td>
+                <td className="p-4 font-bold text-blue-600 cursor-pointer" onClick={()=>handleGoToProductDetail(p)}>{p.name} ({p.color})</td>
                 <td className="p-4">₩ {p.price.toLocaleString()}</td>
                 <td className="p-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${p.stock < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{p.stock} 장</span></td>
                 <td className="p-4 text-center space-x-2">
+                  <button onClick={()=>handleGoToProductDetail(p, true)} className="bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold">수정</button>
                   <button onClick={()=>deleteItem('products', p.id)} className="bg-red-50 text-red-600 px-3 py-1 rounded font-bold">삭제</button>
                 </td>
               </tr>
@@ -349,10 +381,11 @@ export default function App() {
           <tbody>
             {customers.map(c => (
               <tr key={c.id} className="hover:bg-gray-50">
-                <td className="p-4 font-bold">{c.name}</td>
+                <td className="p-4 font-bold cursor-pointer hover:text-blue-600" onClick={()=>handleGoToCustomerDetail(c)}>{c.name}</td>
                 <td className="p-4">{c.phone}</td>
                 <td className="p-4 font-bold text-blue-600">₩ {(c.balance || 0).toLocaleString()}</td>
                 <td className="p-4 space-x-2">
+                  <button onClick={()=>handleGoToCustomerDetail(c, true)} className="text-blue-600">수정</button>
                   <button onClick={()=>deleteItem('customers', c.id)} className="text-red-500">삭제</button>
                 </td>
               </tr>
@@ -369,14 +402,12 @@ export default function App() {
       case 'sales': return renderSales();
       case 'inventory': return renderInventory();
       case 'customers': return renderCustomers();
-      case 'salesReport': return <div className="p-10 text-center font-bold text-gray-500"><TrendingUp size={48} className="mx-auto mb-4 opacity-20"/>매출 현황 분석 화면 준비중...<div className="flex justify-center gap-2 mt-4"><Calendar/><BarChart/></div></div>;
-      case 'restockHistory': return <div className="p-10 text-center font-bold text-gray-500"><Inbox size={48} className="mx-auto mb-4 opacity-20"/>입고 내역 화면 준비중...</div>;
-      case 'misong': return <div className="p-10 text-center font-bold text-gray-500"><FileText size={48} className="mx-auto mb-4 opacity-20"/>미송/샘플 관리 화면 준비중...</div>;
-      case 'addProduct': return <div className="p-10 text-center"><Plus size={48} className="mx-auto mb-4 opacity-20"/>상품 등록 기능 최적화 중...</div>;
-      case 'addCustomer': return <div className="p-10 text-center"><UserPlus size={48} className="mx-auto mb-4 opacity-20"/>거래처 등록 기능 최적화 중...</div>;
-      case 'settings': return <div className="p-10 text-center text-gray-500 font-bold"><Settings size={48} className="mx-auto mb-4 opacity-20"/>환경 설정 (메뉴 순서 등) 준비중...<div className="flex justify-center gap-2 mt-4"><ChevronUp/><ChevronDown/></div></div>;
-      case 'productDetail': return <div className="p-10 text-center font-bold text-gray-500"><Upload size={48} className="mx-auto mb-4 opacity-20"/>상품 상세 정보 수정 화면...</div>;
-      case 'customerDetail': return <div className="p-10 text-center font-bold text-gray-500"><Tag size={48} className="mx-auto mb-4 opacity-20"/>거래처 상세 정보 화면...</div>;
+      case 'salesReport': return <div className="p-10 text-center font-bold text-gray-500"><TrendingUp size={48} className="mx-auto mb-4 opacity-20"/>매출 현황 분석...<div className="flex justify-center gap-2 mt-4"><Calendar/><BarChart/></div></div>;
+      case 'restockHistory': return <div className="p-10 text-center font-bold text-gray-500"><Inbox size={48} className="mx-auto mb-4 opacity-20"/>입고 내역 관리...</div>;
+      case 'misong': return <div className="p-10 text-center font-bold text-gray-500"><FileText size={48} className="mx-auto mb-4 opacity-20"/>미송/샘플 관리...</div>;
+      case 'addProduct': return <div className="p-10 text-center font-bold text-gray-500"><Plus size={48} className="mx-auto mb-4 opacity-20"/>상품 등록...</div>;
+      case 'addCustomer': return <div className="p-10 text-center font-bold text-gray-500"><UserPlus size={48} className="mx-auto mb-4 opacity-20"/>거래처 등록...</div>;
+      case 'settings': return <div className="p-10 text-center text-gray-500 font-bold"><Settings size={48} className="mx-auto mb-4 opacity-20"/>설정 메뉴...<div className="flex justify-center gap-2 mt-4"><ChevronUp/><ChevronDown/></div></div>;
       default: return renderDashboard();
     }
   };
@@ -431,7 +462,7 @@ export default function App() {
             <p className="text-gray-600 mb-6 text-sm leading-relaxed whitespace-pre-wrap">{modalConfig.message}</p>
             <div className="flex justify-end space-x-2">
               {modalConfig.type === 'confirm' && <button onClick={closeModal} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">취소</button>}
-              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">확인</button>
+              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-200">확인</button>
             </div>
           </div>
         </div>
