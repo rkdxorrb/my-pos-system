@@ -76,7 +76,7 @@ const LoginView = ({ onLogin, showAlert }) => {
 
   return (
     <div className="flex h-screen w-full items-center justify-center bg-gray-100 font-sans text-gray-900">
-      <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-sm px-4">
+      <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-sm px-6">
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-gray-900 rounded-2xl flex items-center justify-center font-bold text-4xl text-white mb-4 shadow-md">P</div>
           <h1 className="text-2xl font-bold">POS SYSTEM</h1>
@@ -113,7 +113,7 @@ export default function App() {
   const goBack = () => setMenuHistory(prev => (prev.length <= 1 ? prev : prev.slice(0, -1)));
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
-  const [menuOrder, setMenuOrder] = useState(Object.keys(MENU_CONFIG));
+  const [menuOrder] = useState(Object.keys(MENU_CONFIG));
   const [fbUser, setFbUser] = useState(null);
 
   // 실사용 데이터 상태
@@ -126,16 +126,17 @@ export default function App() {
   const [restockHistory, setRestockHistory] = useState([]);
   
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
-  const [salesCategoryTab, setSalesCategoryTab] = useState('전체');
   const [inventorySearchQuery, setInventorySearchQuery] = useState('');
   const [transactionDate, setTransactionDate] = useState(getTodayStr());
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
 
-  // 폼 상태
+  // 폼 및 상세 상태
   const [addProductForm, setAddProductForm] = useState({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '' });
   const [addCustomerForm, setAddCustomerForm] = useState({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
   const [productEditForm, setProductEditForm] = useState({});
   const [customerEditForm, setCustomerEditForm] = useState({});
+  const [productRestockQty, setProductRestockQty] = useState('');
+  const [productRestockSupplierId, setProductRestockSupplierId] = useState('');
   
   const [selectedProduct, setSelectedProduct] = useState(null); 
   const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null); 
@@ -156,7 +157,7 @@ export default function App() {
     deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', col, id)).catch(console.error);
   };
 
-  // 상세 보기 및 핸들러
+  // 상세 보기 핸들러
   const handleGoToProductDetail = (p, editMode = false) => {
     setSelectedProduct(p); setProductEditForm(p); setProductDetailEditMode(editMode); navigateTo('productDetail');
   };
@@ -402,12 +403,74 @@ export default function App() {
       case 'sales': return renderSales();
       case 'inventory': return renderInventory();
       case 'customers': return renderCustomers();
-      case 'salesReport': return <div className="p-10 text-center font-bold text-gray-500"><TrendingUp size={48} className="mx-auto mb-4 opacity-20"/>매출 현황 분석...<div className="flex justify-center gap-2 mt-4"><Calendar/><BarChart/></div></div>;
-      case 'restockHistory': return <div className="p-10 text-center font-bold text-gray-500"><Inbox size={48} className="mx-auto mb-4 opacity-20"/>입고 내역 관리...</div>;
-      case 'misong': return <div className="p-10 text-center font-bold text-gray-500"><FileText size={48} className="mx-auto mb-4 opacity-20"/>미송/샘플 관리...</div>;
-      case 'addProduct': return <div className="p-10 text-center font-bold text-gray-500"><Plus size={48} className="mx-auto mb-4 opacity-20"/>상품 등록...</div>;
-      case 'addCustomer': return <div className="p-10 text-center font-bold text-gray-500"><UserPlus size={48} className="mx-auto mb-4 opacity-20"/>거래처 등록...</div>;
-      case 'settings': return <div className="p-10 text-center text-gray-500 font-bold"><Settings size={48} className="mx-auto mb-4 opacity-20"/>설정 메뉴...<div className="flex justify-center gap-2 mt-4"><ChevronUp/><ChevronDown/></div></div>;
+      case 'salesReport': return (
+        <div className="p-10 text-center font-bold text-gray-500">
+          <TrendingUp size={48} className="mx-auto mb-4 opacity-20"/>
+          매출 분석 데이터 로딩 중...
+          <div className="flex justify-center gap-4 mt-6">
+            <div className="bg-white p-4 rounded-xl border w-40 shadow-sm"><Calendar size={20} className="mx-auto mb-2 text-blue-400"/>일별 통계</div>
+            <div className="bg-white p-4 rounded-xl border w-40 shadow-sm"><BarChart size={20} className="mx-auto mb-2 text-green-400"/>월별 분석</div>
+          </div>
+        </div>
+      );
+      case 'restockHistory': return <div className="p-10 text-center font-bold text-gray-500"><Inbox size={48} className="mx-auto mb-4 opacity-20"/>입고 내역 관리 화면...</div>;
+      case 'misong': return <div className="p-10 text-center font-bold text-gray-500"><FileText size={48} className="mx-auto mb-4 opacity-20"/>미송/샘플 관리 내역...</div>;
+      case 'addProduct': return (
+        <div className="p-6">
+          <div className="flex items-center mb-6"><h2 className="text-2xl font-bold">신규 상품 등록</h2></div>
+          <div className="bg-white p-8 rounded-xl border shadow-sm max-w-2xl mx-auto">
+            <div className="flex flex-col items-center mb-6 p-10 border-2 border-dashed rounded-xl bg-gray-50 text-gray-400">
+              <Upload size={40} className="mb-2"/><p className="text-sm font-bold">클릭하여 상품 이미지 업로드</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2"><label className="block text-xs font-bold mb-1">상품명</label><input type="text" className="w-full p-2 border rounded" placeholder="예) 오버핏 카라 니트"/></div>
+              <div><label className="block text-xs font-bold mb-1">색상</label><input type="text" className="w-full p-2 border rounded" placeholder="예) 블랙"/></div>
+              <div><label className="block text-xs font-bold mb-1">사이즈</label><input type="text" className="w-full p-2 border rounded" placeholder="예) Free"/></div>
+              <div><label className="block text-xs font-bold mb-1">단가</label><input type="number" className="w-full p-2 border rounded" placeholder="0"/></div>
+              <div><label className="block text-xs font-bold mb-1">초기재고</label><input type="number" className="w-full p-2 border rounded" placeholder="0"/></div>
+            </div>
+            <div className="mt-8 flex justify-end gap-2">
+              <button onClick={goBack} className="px-4 py-2 border rounded font-bold">취소</button>
+              <button onClick={() => showAlert("상품 등록 기능은 정식 배포 후 활성화됩니다.")} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">등록하기</button>
+            </div>
+          </div>
+        </div>
+      );
+      case 'addCustomer': return (
+        <div className="p-6">
+          <div className="flex items-center mb-6"><h2 className="text-2xl font-bold">신규 거래처 등록</h2></div>
+          <div className="bg-white p-8 rounded-xl border shadow-sm max-w-lg mx-auto">
+            <div className="space-y-4">
+              <div><label className="block text-xs font-bold mb-1">거래처 상호</label><input type="text" className="w-full p-2 border rounded" placeholder="예) 동대문 패션"/></div>
+              <div><label className="block text-xs font-bold mb-1">연락처</label><input type="text" className="w-full p-2 border rounded" placeholder="010-0000-0000"/></div>
+              <div><label className="block text-xs font-bold mb-1">사업자번호</label><input type="text" className="w-full p-2 border rounded" placeholder="000-00-00000"/></div>
+              <div><label className="block text-xs font-bold mb-1">메모</label><textarea className="w-full p-2 border rounded h-24"></textarea></div>
+            </div>
+            <div className="mt-8 flex justify-end gap-2">
+              <button onClick={goBack} className="px-4 py-2 border rounded font-bold">취소</button>
+              <button onClick={() => showAlert("거래처 등록 기능 준비 중")} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">등록하기</button>
+            </div>
+          </div>
+        </div>
+      );
+      case 'settings': return (
+        <div className="p-6">
+          <div className="flex items-center mb-6 text-2xl font-bold"><Settings className="mr-3"/>시스템 설정</div>
+          <div className="bg-white p-6 rounded-xl border shadow-sm max-w-xl">
+            <h3 className="font-bold mb-4 border-b pb-2">메뉴 정렬 설정</h3>
+            <div className="space-y-2">
+              {menuOrder.map((id, idx) => (
+                <div key={id} className="flex items-center justify-between p-3 bg-gray-50 border rounded-lg">
+                  <div className="flex items-center"><span className="font-black text-blue-600 mr-3">F{idx+1}</span>{MENU_CONFIG[id].label}</div>
+                  <div className="flex gap-1"><ChevronUp size={18} className="cursor-pointer text-gray-400"/><ChevronDown size={18} className="cursor-pointer text-gray-400"/></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+      case 'productDetail': return <div className="p-10 text-center font-bold text-gray-500"><Tag size={48} className="mx-auto mb-4 opacity-20"/>상품 상세 정보 및 수정...</div>;
+      case 'customerDetail': return <div className="p-10 text-center font-bold text-gray-500"><Users size={48} className="mx-auto mb-4 opacity-20"/>거래처 거래 내역 상세...</div>;
       default: return renderDashboard();
     }
   };
