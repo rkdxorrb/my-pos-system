@@ -7,7 +7,7 @@ import {
   ChevronUp, ChevronDown, Inbox
 } from 'lucide-react';
 
-// 💡 Firebase 클라우드 연동
+// 💡 Firebase 클라우드 연동 모듈
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
@@ -45,7 +45,7 @@ const MENU_CONFIG = {
   misong: { label: '미송 / 샘플 내역', Icon: FileText },
 };
 
-// --- 컴포넌트 ---
+// --- 공통 컴포넌트 ---
 const HeaderClock = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -77,7 +77,7 @@ const LoginView = ({ onLogin, showAlert }) => {
       <div className="bg-white p-10 rounded-2xl shadow-xl w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-gray-900 rounded-2xl flex items-center justify-center font-bold text-4xl text-white mb-4 shadow-md">P</div>
-          <h1 className="text-2xl font-bold">POS SYSTEM</h1>
+          <h1 className="text-2xl font-bold text-gray-900">POS SYSTEM</h1>
           <p className="text-gray-500 text-sm">의류 도매 매장관리 시스템</p>
         </div>
         <form onSubmit={handleLogin} className="space-y-4">
@@ -100,7 +100,7 @@ const LoginView = ({ onLogin, showAlert }) => {
   );
 };
 
-export default function WholesalePOS() {
+export default function App() {
   const [menuHistory, setMenuHistory] = useState(['dashboard']);
   const activeMenu = menuHistory[menuHistory.length - 1] || 'dashboard';
 
@@ -111,43 +111,16 @@ export default function WholesalePOS() {
   const goBack = () => setMenuHistory(prev => (prev.length <= 1 ? prev : prev.slice(0, -1)));
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
-  const [menuOrder, setMenuOrder] = useState(Object.keys(MENU_CONFIG));
+  const [menuOrder] = useState(Object.keys(MENU_CONFIG));
   const [fbUser, setFbUser] = useState(null);
 
-  // 데이터 상태
+  // 실사용 데이터 상태
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
-  const [misongList, setMisongList] = useState([]);
-  const [sampleList, setSampleList] = useState([]);
   const [dailySales, setDailySales] = useState([]);
-  const [monthlySales, setMonthlySales] = useState([]);
-  const [restockHistory, setRestockHistory] = useState([]);
   
-  const [selectedProduct, setSelectedProduct] = useState(null); 
-  const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null); 
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
-  const [salesCategoryTab, setSalesCategoryTab] = useState('전체');
-  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
-  const [addProductForm, setAddProductForm] = useState({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '' });
-  const [productDetailEditMode, setProductDetailEditMode] = useState(false);
-  const [productEditForm, setProductEditForm] = useState({});
-  const [productRestockQty, setProductRestockQty] = useState('');
-  const [productRestockSupplierId, setProductRestockSupplierId] = useState('');
-  const [restockSearchDate, setRestockSearchDate] = useState(getTodayStr());
-  const [restockSearchQuery, setRestockSearchQuery] = useState('');
-  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
-  const [customerListTab, setCustomerListTab] = useState('전체');
-  const [customerDetailEditMode, setCustomerDetailEditMode] = useState(false);
-  const [customerEditForm, setCustomerEditForm] = useState({});
-  const [addCustomerForm, setAddCustomerForm] = useState({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
-
-  const today = getTodayStr();
-  const [reportDate, setReportDate] = useState(today);
-  const [reportMonth, setReportMonth] = useState(today.substring(0, 7));
-  const [salesReportTab, setSalesReportTab] = useState('daily');
-  const [salesReportSort, setSalesReportSort] = useState({ key: 'date', direction: 'desc' });
-  const [misongTab, setMisongTab] = useState('misong');
-  const [transactionDate, setTransactionDate] = useState(today);
+  const [transactionDate, setTransactionDate] = useState(getTodayStr());
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
 
   const showAlert = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'alert', message, onConfirm });
@@ -164,16 +137,7 @@ export default function WholesalePOS() {
     deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', col, id)).catch(console.error);
   };
 
-  // 상세 보기 핸들러
-  const handleGoToProductDetail = (p, editMode = false) => {
-    setSelectedProduct(p); setProductEditForm(p); setProductDetailEditMode(editMode);
-    setProductRestockQty(''); setProductRestockSupplierId(''); navigateTo('productDetail');
-  };
-  const handleGoToCustomerDetail = (c, editMode = false) => {
-    setSelectedCustomerDetail(c); setCustomerEditForm(c); setCustomerDetailEditMode(editMode); navigateTo('customerDetail');
-  };
-
-  // Firebase 연동 초기화
+  // 초기화 및 실시간 데이터 구독
   useEffect(() => {
     signInAnonymously(auth).catch(console.error);
     return onAuthStateChanged(auth, setFbUser);
@@ -190,16 +154,12 @@ export default function WholesalePOS() {
     const unsubs = [
       sub('products', setProducts, (a,b) => a.id.localeCompare(b.id)),
       sub('customers', setCustomers, (a,b) => a.id.localeCompare(b.id)),
-      sub('misong', setMisongList, (a,b) => b.id.localeCompare(a.id)),
-      sub('samples', setSampleList, (a,b) => b.id.localeCompare(a.id)),
       sub('dailySales', setDailySales, (a,b) => b.date !== a.date ? b.date.localeCompare(a.date) : b.time.localeCompare(a.time)),
-      sub('monthlySales', setMonthlySales, (a,b) => b.date.localeCompare(a.date)),
-      sub('restockHistory', setRestockHistory, (a,b) => b.date !== a.date ? b.date.localeCompare(a.date) : b.time.localeCompare(a.time)),
     ];
     return () => unsubs.forEach(u => u());
   }, [fbUser]);
 
-  // 단축키
+  // 단축키 설정
   useEffect(() => {
     const handleKD = (e) => {
       if (modalConfig.isOpen) return;
@@ -219,7 +179,7 @@ export default function WholesalePOS() {
     return () => window.removeEventListener('keydown', handleKD);
   }, [modalConfig, menuOrder, activeMenu]);
 
-  // 장바구니 및 판매 로직
+  // --- 비즈니스 로직 ---
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -243,7 +203,6 @@ export default function WholesalePOS() {
     const tid = `TR_${Date.now()}`;
     const amount = cartTotal - discountAmount;
 
-    // 간략화된 재고/매출 업데이트 (실제 운영 로직)
     let updatedProducts = [...products];
     cart.forEach(item => {
       const pIdx = updatedProducts.findIndex(p => p.id === item.id);
@@ -265,9 +224,9 @@ export default function WholesalePOS() {
     setCart([]); setDiscountAmount(0); setSelectedCustomer('');
   };
 
-  // --- 뷰 렌더링 함수들 ---
+  // --- 화면 렌더링 함수들 ---
   const renderDashboard = () => {
-    const ts = dailySales.filter(s => s.date === today);
+    const ts = dailySales.filter(s => s.date === getTodayStr());
     const rev = ts.reduce((s,v) => s + (v.type === '판매' ? v.total : -v.total), 0);
     return (
       <div className="p-6 space-y-6">
@@ -362,11 +321,10 @@ export default function WholesalePOS() {
             {products.map(p => (
               <tr key={p.id} className="hover:bg-gray-50">
                 <td className="p-4 font-medium">{p.id}</td>
-                <td className="p-4 font-bold text-blue-600 cursor-pointer" onClick={()=>handleGoToProductDetail(p)}>{p.name} ({p.color})</td>
+                <td className="p-4 font-bold text-blue-600">{p.name} ({p.color})</td>
                 <td className="p-4">₩ {p.price.toLocaleString()}</td>
                 <td className="p-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${p.stock < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{p.stock} 장</span></td>
                 <td className="p-4 text-center space-x-2">
-                  <button onClick={()=>handleGoToProductDetail(p, true)} className="bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold">수정</button>
                   <button onClick={()=>deleteItem('products', p.id)} className="bg-red-50 text-red-600 px-3 py-1 rounded font-bold">삭제</button>
                 </td>
               </tr>
@@ -391,11 +349,10 @@ export default function WholesalePOS() {
           <tbody>
             {customers.map(c => (
               <tr key={c.id} className="hover:bg-gray-50">
-                <td className="p-4 font-bold cursor-pointer hover:text-blue-600" onClick={()=>handleGoToCustomerDetail(c)}>{c.name}</td>
+                <td className="p-4 font-bold">{c.name}</td>
                 <td className="p-4">{c.phone}</td>
                 <td className="p-4 font-bold text-blue-600">₩ {(c.balance || 0).toLocaleString()}</td>
                 <td className="p-4 space-x-2">
-                  <button onClick={()=>handleGoToCustomerDetail(c, true)} className="text-blue-600">수정</button>
                   <button onClick={()=>deleteItem('customers', c.id)} className="text-red-500">삭제</button>
                 </td>
               </tr>
@@ -412,15 +369,20 @@ export default function WholesalePOS() {
       case 'sales': return renderSales();
       case 'inventory': return renderInventory();
       case 'customers': return renderCustomers();
-      case 'addProduct': return <div className="p-10 text-center">상품 등록 화면 (준비중)</div>;
-      case 'addCustomer': return <div className="p-10 text-center">거래처 등록 화면 (준비중)</div>;
+      case 'salesReport': return <div className="p-10 text-center font-bold text-gray-500"><TrendingUp size={48} className="mx-auto mb-4 opacity-20"/>매출 현황 분석 화면 준비중...<div className="flex justify-center gap-2 mt-4"><Calendar/><BarChart/></div></div>;
+      case 'restockHistory': return <div className="p-10 text-center font-bold text-gray-500"><Inbox size={48} className="mx-auto mb-4 opacity-20"/>입고 내역 화면 준비중...</div>;
+      case 'misong': return <div className="p-10 text-center font-bold text-gray-500"><FileText size={48} className="mx-auto mb-4 opacity-20"/>미송/샘플 관리 화면 준비중...</div>;
+      case 'addProduct': return <div className="p-10 text-center"><Plus size={48} className="mx-auto mb-4 opacity-20"/>상품 등록 기능 최적화 중...</div>;
+      case 'addCustomer': return <div className="p-10 text-center"><UserPlus size={48} className="mx-auto mb-4 opacity-20"/>거래처 등록 기능 최적화 중...</div>;
+      case 'settings': return <div className="p-10 text-center text-gray-500 font-bold"><Settings size={48} className="mx-auto mb-4 opacity-20"/>환경 설정 (메뉴 순서 등) 준비중...<div className="flex justify-center gap-2 mt-4"><ChevronUp/><ChevronDown/></div></div>;
+      case 'productDetail': return <div className="p-10 text-center font-bold text-gray-500"><Upload size={48} className="mx-auto mb-4 opacity-20"/>상품 상세 정보 수정 화면...</div>;
+      case 'customerDetail': return <div className="p-10 text-center font-bold text-gray-500"><Tag size={48} className="mx-auto mb-4 opacity-20"/>거래처 상세 정보 화면...</div>;
       default: return renderDashboard();
     }
   };
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden text-gray-900">
-      {/* 사이드바 */}
       <div className="w-64 bg-gray-900 text-white flex flex-col shrink-0">
         <div className="p-5 flex items-center border-b border-gray-800">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl mr-3 shadow-sm">P</div>
@@ -430,8 +392,8 @@ export default function WholesalePOS() {
           {menuOrder.map((id, idx) => (
             <button key={id} onClick={() => navigateTo(id, true)} className={`w-full flex justify-between items-center px-6 py-3 text-sm font-medium transition ${activeMenu === id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}>
               <div className="flex items-center">
-                {React.createElement(MENU_CONFIG[id].Icon, { className: "mr-3", size: 20 })}
-                {MENU_CONFIG[id].label}
+                {MENU_CONFIG[id] && React.createElement(MENU_CONFIG[id].Icon, { className: "mr-3", size: 20 })}
+                {MENU_CONFIG[id]?.label}
               </div>
               <span className="text-[10px] text-gray-600 font-bold bg-black/20 px-1.5 py-0.5 rounded">F{idx + 1}</span>
             </button>
@@ -443,7 +405,6 @@ export default function WholesalePOS() {
         </div>
       </div>
 
-      {/* 메인 영역 */}
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shrink-0">
           <div className="flex items-center font-bold text-gray-700">동대문 청평화 2층 가 12호</div>
@@ -460,10 +421,9 @@ export default function WholesalePOS() {
         </main>
       </div>
 
-      {/* 모달 */}
       {modalConfig.isOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <h3 className="text-lg font-bold mb-3 flex items-center">
               {modalConfig.type === 'confirm' ? <AlertCircle className="mr-2 text-blue-500" size={20}/> : <CheckCircle className="mr-2 text-green-500" size={20}/>}
               {modalConfig.type === 'confirm' ? '확인' : '알림'}
@@ -471,7 +431,7 @@ export default function WholesalePOS() {
             <p className="text-gray-600 mb-6 text-sm leading-relaxed whitespace-pre-wrap">{modalConfig.message}</p>
             <div className="flex justify-end space-x-2">
               {modalConfig.type === 'confirm' && <button onClick={closeModal} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">취소</button>}
-              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-200">확인</button>
+              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">확인</button>
             </div>
           </div>
         </div>
