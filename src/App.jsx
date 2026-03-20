@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 /* eslint-disable react/prop-types */
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, { useState, useEffect } from 'react';
 import { 
   Home, ShoppingCart, Package, Users, FileText, 
@@ -518,7 +519,7 @@ export default function App() {
             <p className="text-gray-600 mb-6 text-sm leading-relaxed whitespace-pre-wrap">{modalConfig.message}</p>
             <div className="flex justify-end space-x-2">
               {modalConfig.type === 'confirm' && <button onClick={closeModal} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">취소</button>}
-              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">확인</button>
+              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-200">확인</button>
             </div>
           </div>
         </div>
