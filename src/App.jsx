@@ -9,7 +9,7 @@ import {
   ChevronUp, ChevronDown, Inbox
 } from 'lucide-react';
 
-// 💡 Firebase 클라우드 연동 모듈
+// 💡 Firebase 클라우드 연동
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
@@ -29,7 +29,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "my-store-pos-4b3d3";
 
-// --- 유틸리티 함수 ---
+// --- 유틸리티 ---
 const getTodayStr = () => {
   const now = new Date();
   const kstOffset = 9 * 60 * 60 * 1000;
@@ -47,7 +47,7 @@ const MENU_CONFIG = {
   misong: { label: '미송 / 샘플 내역', Icon: FileText },
 };
 
-// --- 공통 컴포넌트 ---
+// --- 컴포넌트 ---
 const HeaderClock = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   useEffect(() => {
@@ -113,7 +113,7 @@ export default function App() {
   const goBack = () => setMenuHistory(prev => (prev.length <= 1 ? prev : prev.slice(0, -1)));
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
-  const [menuOrder] = useState(Object.keys(MENU_CONFIG));
+  const [menuOrder, setMenuOrder] = useState(Object.keys(MENU_CONFIG));
   const [fbUser, setFbUser] = useState(null);
 
   // 실사용 데이터 상태
@@ -126,6 +126,7 @@ export default function App() {
   const [restockHistory, setRestockHistory] = useState([]);
   
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [salesCategoryTab, setSalesCategoryTab] = useState('전체');
   const [inventorySearchQuery, setInventorySearchQuery] = useState('');
   const [transactionDate, setTransactionDate] = useState(getTodayStr());
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
@@ -318,7 +319,7 @@ export default function App() {
           </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {products.filter(p=>p.name.includes(salesSearchQuery)).map(p => (
+          {products.filter(p=>p.name.toLowerCase().includes(salesSearchQuery.toLowerCase())).map(p => (
             <div key={p.id} onClick={()=>handleAddToCart(p)} className="bg-white p-4 rounded-xl border border-gray-200 cursor-pointer hover:border-blue-500 shadow-sm transition">
               <div className="aspect-[3/4] bg-gray-100 rounded-lg mb-3 flex items-center justify-center text-gray-300">
                 {p.image ? <img src={p.image} className="w-full h-full object-cover rounded-lg" alt=""/> : <Package size={32}/>}
@@ -357,8 +358,8 @@ export default function App() {
                 <td className="p-4">₩ {p.price.toLocaleString()}</td>
                 <td className="p-4"><span className={`px-2 py-1 rounded-full text-xs font-bold ${p.stock < 10 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{p.stock} 장</span></td>
                 <td className="p-4 text-center space-x-2">
-                  <button onClick={()=>handleGoToProductDetail(p, true)} className="bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold">수정</button>
-                  <button onClick={()=>deleteItem('products', p.id)} className="bg-red-50 text-red-600 px-3 py-1 rounded font-bold">삭제</button>
+                  <button onClick={()=>handleGoToProductDetail(p, true)} className="bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold text-xs">수정</button>
+                  <button onClick={()=>deleteItem('products', p.id)} className="bg-red-50 text-red-600 px-3 py-1 rounded font-bold text-xs">삭제</button>
                 </td>
               </tr>
             ))}
@@ -385,9 +386,9 @@ export default function App() {
                 <td className="p-4 font-bold cursor-pointer hover:text-blue-600" onClick={()=>handleGoToCustomerDetail(c)}>{c.name}</td>
                 <td className="p-4">{c.phone}</td>
                 <td className="p-4 font-bold text-blue-600">₩ {(c.balance || 0).toLocaleString()}</td>
-                <td className="p-4 space-x-2">
-                  <button onClick={()=>handleGoToCustomerDetail(c, true)} className="text-blue-600">수정</button>
-                  <button onClick={()=>deleteItem('customers', c.id)} className="text-red-500">삭제</button>
+                <td className="p-4 space-x-2 text-xs">
+                  <button onClick={()=>handleGoToCustomerDetail(c, true)} className="text-blue-600 font-bold">수정</button>
+                  <button onClick={()=>deleteItem('customers', c.id)} className="text-red-500 font-bold ml-2">삭제</button>
                 </td>
               </tr>
             ))}
@@ -413,40 +414,34 @@ export default function App() {
           </div>
         </div>
       );
-      case 'restockHistory': return <div className="p-10 text-center font-bold text-gray-500"><Inbox size={48} className="mx-auto mb-4 opacity-20"/>입고 내역 관리 화면...</div>;
-      case 'misong': return <div className="p-10 text-center font-bold text-gray-500"><FileText size={48} className="mx-auto mb-4 opacity-20"/>미송/샘플 관리 내역...</div>;
+      case 'restockHistory': return <div className="p-10 text-center font-bold text-gray-500"><Inbox size={48} className="mx-auto mb-4 opacity-20"/>입고 내역 관리 (준비 중)</div>;
+      case 'misong': return <div className="p-10 text-center font-bold text-gray-500"><FileText size={48} className="mx-auto mb-4 opacity-20"/>미송/샘플 관리 (준비 중)</div>;
       case 'addProduct': return (
         <div className="p-6">
-          <div className="flex items-center mb-6"><h2 className="text-2xl font-bold">신규 상품 등록</h2></div>
+          <h2 className="text-2xl font-bold mb-6">신규 상품 등록</h2>
           <div className="bg-white p-8 rounded-xl border shadow-sm max-w-2xl mx-auto">
-            <div className="flex flex-col items-center mb-6 p-10 border-2 border-dashed rounded-xl bg-gray-50 text-gray-400">
-              <Upload size={40} className="mb-2"/><p className="text-sm font-bold">클릭하여 상품 이미지 업로드</p>
+            <div className="flex flex-col items-center mb-6 p-10 border-2 border-dashed rounded-xl bg-gray-50 text-gray-400 cursor-pointer">
+              <Upload size={40} className="mb-2"/><p className="text-sm font-bold">상품 이미지 등록</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2"><label className="block text-xs font-bold mb-1">상품명</label><input type="text" className="w-full p-2 border rounded" placeholder="예) 오버핏 카라 니트"/></div>
-              <div><label className="block text-xs font-bold mb-1">색상</label><input type="text" className="w-full p-2 border rounded" placeholder="예) 블랙"/></div>
-              <div><label className="block text-xs font-bold mb-1">사이즈</label><input type="text" className="w-full p-2 border rounded" placeholder="예) Free"/></div>
-              <div><label className="block text-xs font-bold mb-1">단가</label><input type="number" className="w-full p-2 border rounded" placeholder="0"/></div>
-              <div><label className="block text-xs font-bold mb-1">초기재고</label><input type="number" className="w-full p-2 border rounded" placeholder="0"/></div>
+              <div className="col-span-2"><label className="block text-xs font-bold mb-1">상품명 *</label><input type="text" className="w-full p-2 border rounded" value={addProductForm.name} onChange={e=>setAddProductForm({...addProductForm, name:e.target.value})}/></div>
+              <div><label className="block text-xs font-bold mb-1">단가 *</label><input type="number" className="w-full p-2 border rounded" value={addProductForm.price} onChange={e=>setAddProductForm({...addProductForm, price:e.target.value})}/></div>
+              <div><label className="block text-xs font-bold mb-1">초기 재고</label><input type="number" className="w-full p-2 border rounded" value={addProductForm.stock} onChange={e=>setAddProductForm({...addProductForm, stock:e.target.value})}/></div>
             </div>
             <div className="mt-8 flex justify-end gap-2">
               <button onClick={goBack} className="px-4 py-2 border rounded font-bold">취소</button>
-              <button onClick={() => showAlert("상품 등록 기능은 정식 배포 후 활성화됩니다.")} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">등록하기</button>
+              <button onClick={() => showAlert("등록 기능이 곧 활성화됩니다.")} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">등록하기</button>
             </div>
           </div>
         </div>
       );
       case 'addCustomer': return (
         <div className="p-6">
-          <div className="flex items-center mb-6"><h2 className="text-2xl font-bold">신규 거래처 등록</h2></div>
-          <div className="bg-white p-8 rounded-xl border shadow-sm max-w-lg mx-auto">
-            <div className="space-y-4">
-              <div><label className="block text-xs font-bold mb-1">거래처 상호</label><input type="text" className="w-full p-2 border rounded" placeholder="예) 동대문 패션"/></div>
-              <div><label className="block text-xs font-bold mb-1">연락처</label><input type="text" className="w-full p-2 border rounded" placeholder="010-0000-0000"/></div>
-              <div><label className="block text-xs font-bold mb-1">사업자번호</label><input type="text" className="w-full p-2 border rounded" placeholder="000-00-00000"/></div>
-              <div><label className="block text-xs font-bold mb-1">메모</label><textarea className="w-full p-2 border rounded h-24"></textarea></div>
-            </div>
-            <div className="mt-8 flex justify-end gap-2">
+          <h2 className="text-2xl font-bold mb-6">신규 거래처 등록</h2>
+          <div className="bg-white p-8 rounded-xl border shadow-sm max-w-lg mx-auto space-y-4">
+            <div><label className="block text-xs font-bold mb-1">상호명 *</label><input type="text" className="w-full p-2 border rounded" value={addCustomerForm.name} onChange={e=>setAddCustomerForm({...addCustomerForm, name:e.target.value})}/></div>
+            <div><label className="block text-xs font-bold mb-1">연락처</label><input type="text" className="w-full p-2 border rounded" value={addCustomerForm.phone} onChange={e=>setAddCustomerForm({...addCustomerForm, phone:e.target.value})}/></div>
+            <div className="mt-8 flex justify-end gap-2 pt-4">
               <button onClick={goBack} className="px-4 py-2 border rounded font-bold">취소</button>
               <button onClick={() => showAlert("거래처 등록 기능 준비 중")} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">등록하기</button>
             </div>
@@ -455,22 +450,20 @@ export default function App() {
       );
       case 'settings': return (
         <div className="p-6">
-          <div className="flex items-center mb-6 text-2xl font-bold"><Settings className="mr-3"/>시스템 설정</div>
+          <h2 className="text-2xl font-bold mb-6 flex items-center"><Settings className="mr-2"/>시스템 설정</h2>
           <div className="bg-white p-6 rounded-xl border shadow-sm max-w-xl">
-            <h3 className="font-bold mb-4 border-b pb-2">메뉴 정렬 설정</h3>
-            <div className="space-y-2">
-              {menuOrder.map((id, idx) => (
-                <div key={id} className="flex items-center justify-between p-3 bg-gray-50 border rounded-lg">
-                  <div className="flex items-center"><span className="font-black text-blue-600 mr-3">F{idx+1}</span>{MENU_CONFIG[id].label}</div>
-                  <div className="flex gap-1"><ChevronUp size={18} className="cursor-pointer text-gray-400"/><ChevronDown size={18} className="cursor-pointer text-gray-400"/></div>
-                </div>
-              ))}
-            </div>
+            <h3 className="font-bold mb-4 border-b pb-2">메뉴 관리</h3>
+            {menuOrder.map((id, idx) => (
+              <div key={id} className="flex items-center justify-between p-3 bg-gray-50 border rounded-lg mb-2">
+                <div className="flex items-center"><span className="font-black text-blue-600 mr-3">F{idx+1}</span>{MENU_CONFIG[id].label}</div>
+                <div className="flex gap-2"><ChevronUp size={18} className="text-gray-400"/><ChevronDown size={18} className="text-gray-400"/></div>
+              </div>
+            ))}
           </div>
         </div>
       );
-      case 'productDetail': return <div className="p-10 text-center font-bold text-gray-500"><Tag size={48} className="mx-auto mb-4 opacity-20"/>상품 상세 정보 및 수정...</div>;
-      case 'customerDetail': return <div className="p-10 text-center font-bold text-gray-500"><Users size={48} className="mx-auto mb-4 opacity-20"/>거래처 거래 내역 상세...</div>;
+      case 'productDetail': return <div className="p-10 text-center font-bold text-gray-500"><Tag size={48} className="mx-auto mb-4 opacity-20"/>상품 상세 정보 수정 (준비 중)</div>;
+      case 'customerDetail': return <div className="p-10 text-center font-bold text-gray-500"><Users size={48} className="mx-auto mb-4 opacity-20"/>거래처 거래 상세 내역 (준비 중)</div>;
       default: return renderDashboard();
     }
   };
@@ -502,8 +495,8 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shrink-0">
           <div className="flex items-center font-bold text-gray-700">동대문 청평화 2층 가 12호</div>
-          <div className="flex items-center space-x-6 text-gray-500">
-            <div className="flex items-center text-sm"><Clock className="mr-2" size={18} /><HeaderClock /></div>
+          <div className="flex items-center space-x-6 text-gray-500 text-sm">
+            <div className="flex items-center"><Clock className="mr-2" size={18} /><HeaderClock /></div>
             <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold text-gray-600">관리</div>
           </div>
         </header>
@@ -525,7 +518,7 @@ export default function App() {
             <p className="text-gray-600 mb-6 text-sm leading-relaxed whitespace-pre-wrap">{modalConfig.message}</p>
             <div className="flex justify-end space-x-2">
               {modalConfig.type === 'confirm' && <button onClick={closeModal} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold">취소</button>}
-              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-200">확인</button>
+              <button onClick={() => { if (modalConfig.onConfirm) modalConfig.onConfirm(); closeModal(); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold">확인</button>
             </div>
           </div>
         </div>
