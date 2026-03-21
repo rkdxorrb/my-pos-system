@@ -4,7 +4,7 @@ import {
   DollarSign, Clock, Search, Plus, Minus, Trash2, 
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, Tag, Upload,
-  ChevronUp, ChevronDown, Inbox
+  ChevronUp, ChevronDown, Inbox, Printer
 } from 'lucide-react';
 
 // 💡 Firebase 클라우드 연동 모듈 임포트
@@ -58,7 +58,6 @@ const MENU_CONFIG = {
   misong: { label: '미송 / 샘플 내역', Icon: FileText },
 };
 
-// 💡 포커스 풀림 현상을 방지하기 위해 로그인 컴포넌트를 메인 함수 바깥으로 분리
 const LoginView = ({ onLogin, showAlert }) => {
   const [id, setId] = useState(localStorage.getItem('savedPosId') || '');
   const [password, setPassword] = useState('');
@@ -72,7 +71,6 @@ const LoginView = ({ onLogin, showAlert }) => {
       } else {
         localStorage.removeItem('savedPosId');
       }
-      // 💡 로그인 성공 시 세션 저장 (새로고침 방어용)
       sessionStorage.setItem('pos_logged_in', 'true');
       onLogin();
     } else {
@@ -91,7 +89,6 @@ const LoginView = ({ onLogin, showAlert }) => {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">아이디</label>
-            {/* 💡 접속 즉시 입력 가능하도록 autoFocus 속성 추가 */}
             <input autoFocus type="text" value={id} onChange={e => setId(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" required />
           </div>
           <div>
@@ -118,7 +115,6 @@ const LoginView = ({ onLogin, showAlert }) => {
 };
 
 export default function WholesalePOS() {
-  // 💡 메뉴 히스토리 관리 (뒤로가기 완벽 지원)
   const [menuHistory, setMenuHistory] = useState(['dashboard']);
   const activeMenu = menuHistory[menuHistory.length - 1] || 'dashboard';
 
@@ -137,7 +133,6 @@ export default function WholesalePOS() {
     });
   };
 
-  // 💡 초기 구동 시 세션 스토리지의 로그인 기록을 불러오도록 수정
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
   const [menuOrder, setMenuOrder] = useState(Object.keys(MENU_CONFIG));
 
@@ -154,7 +149,6 @@ export default function WholesalePOS() {
   const [selectedProduct, setSelectedProduct] = useState(null); 
   const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null); 
   
-  // 💡 포커스 오류 해결을 위한 모든 상태 최상단 배치 (Hoisting)
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
   const [salesCategoryTab, setSalesCategoryTab] = useState('전체');
   
@@ -187,7 +181,6 @@ export default function WholesalePOS() {
 
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
 
-  // 💡 팝업창에서 확인 버튼을 눌렀을 때 실행될 함수(콜백)를 받을 수 있도록 수정
   const showAlert = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'alert', message, onConfirm });
   const showConfirm = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'confirm', message, onConfirm });
   const closeModal = () => setModalConfig({ isOpen: false, type: 'alert', message: '', onConfirm: null });
@@ -203,7 +196,6 @@ export default function WholesalePOS() {
     deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, id)).catch(console.error);
   };
 
-  // 상세 화면 바로가기 헬퍼 함수
   const handleGoToProductDetail = (p, editMode = false) => {
     setSelectedProduct(p);
     setProductEditForm(p);
@@ -220,7 +212,6 @@ export default function WholesalePOS() {
     navigateTo('customerDetail');
   };
 
-  // Firebase 인증 (토큰 에러 해결 로직 포함)
   useEffect(() => {
     if (!auth) return;
     const initAuth = async () => {
@@ -251,7 +242,6 @@ export default function WholesalePOS() {
     return () => unsubscribe();
   }, []);
 
-  // Firebase 실시간 데이터 구독
   useEffect(() => {
     if (!db || !fbUser) return;
 
@@ -284,7 +274,6 @@ export default function WholesalePOS() {
     return () => unsubs.forEach(u => u());
   }, [fbUser]);
 
-  // 키보드 단축키 및 뒤로가기(백스페이스) 처리
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (!e || typeof e.key !== 'string') return;
@@ -292,7 +281,6 @@ export default function WholesalePOS() {
       if (modalConfig.isOpen) {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          // 💡 키보드를 꾹 누르고 있을 때 모달이 순식간에 닫히는 현상 방지
           if (!e.repeat) {
             if (modalConfig.onConfirm) modalConfig.onConfirm();
             closeModal();
@@ -334,6 +322,215 @@ export default function WholesalePOS() {
   const [discountAmount, setDiscountAmount] = useState(0);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+
+  // =========================================================================
+  // 💡 [최종 완결판] 영수증 2장 자동 출력 로직 + QR코드/상호명 좌우정렬 레이아웃 적용
+  // =========================================================================
+  const printReceipt = (receiptData) => {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+
+    const now = new Date();
+    const printTime = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+
+    // 구매 물품 리스트 HTML 생성
+    let itemsHtml = '';
+    receiptData.cart.forEach(item => {
+      const itemTotal = item.qty * item.price;
+      itemsHtml += `
+        <div class="item">
+          <div class="item-name">${item.name} (${item.color}/${item.size})</div>
+          <div class="item-calc">
+            <span>${item.price.toLocaleString()} x ${item.qty}</span>
+            <span>${itemTotal.toLocaleString()}</span>
+          </div>
+          ${item.misongQty > 0 ? `<div class="misong-notice">* 미송포함: ${item.misongQty}장</div>` : ''}
+        </div>
+      `;
+    });
+
+    // 결제 요약 영역 HTML 생성
+    let summaryHtml = '';
+    if (receiptData.type === '결제') {
+      summaryHtml = `
+        <div class="summary-line">
+          <span>총 상품금액</span>
+          <span>${receiptData.cartTotal.toLocaleString()}</span>
+        </div>
+        ${receiptData.discountAmount > 0 ? `
+        <div class="summary-line text-discount">
+          <span>할인</span>
+          <span>-${receiptData.discountAmount.toLocaleString()}</span>
+        </div>` : ''}
+        ${receiptData.appliedBalance > 0 ? `
+        <div class="summary-line text-discount">
+          <span>잔고 차감</span>
+          <span>-${receiptData.appliedBalance.toLocaleString()}</span>
+        </div>` : ''}
+        <div class="divider"></div>
+        <div class="summary-line total-line">
+          <span>최종 결제액</span>
+          <span>${receiptData.actualPayment.toLocaleString()}</span>
+        </div>
+      `;
+    } else if (receiptData.type === '반품') {
+      summaryHtml = `
+        <div class="summary-line total-line">
+          <span>총 반품액 (잔고적립)</span>
+          <span>${receiptData.amountAfterDiscount.toLocaleString()}</span>
+        </div>
+      `;
+    } else if (receiptData.type === '샘플') {
+      summaryHtml = `
+        <div class="summary-line total-line">
+          <span>샘플 출고</span>
+          <span>총 ${receiptData.cart.reduce((s, i) => s + i.qty, 0)} 장</span>
+        </div>
+      `;
+    }
+
+    // 하나의 영수증(1장)을 그리는 헬퍼 함수
+    const generateReceiptBody = (receiptTypeLabel) => `
+      <div class="receipt">
+        <div class="header">
+          <!-- 중앙 상단 로고 -->
+          <img src="B# 로고.png" alt="B# 로고" class="logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+          <div class="logo-text-fallback" style="display:none;">B#</div>
+          
+          <!-- 매장정보 좌측, QR코드 우측 배치 -->
+          <div class="info-row">
+            <div class="info-left">
+              <div class="store-address">청평화 2층 가 12호</div>
+              <div class="store-contact">
+                Tel : 010-7208-8833<br>
+                Kakao : bsharp8833<br>
+                E-mail : bsharp@kakao.com
+              </div>
+            </div>
+            <div class="info-right">
+              <div class="qr-title">카톡 문의</div>
+              <img src="카톡.png" alt="카카오톡 QR" class="qr-code" onerror="this.style.display='none'; this.parentElement.innerText='(QR 없음)';">
+            </div>
+          </div>
+
+          <div class="receipt-title">
+            영 수 증 (${receiptData.type})<br>
+            <span class="receipt-type">[${receiptTypeLabel}]</span>
+          </div>
+          <div class="print-time">${printTime}</div>
+        </div>
+        
+        <div class="divider-solid"></div>
+        <div class="customer-info">거래처 : ${receiptData.customerName}</div>
+        <div class="divider-solid"></div>
+        
+        ${itemsHtml}
+        
+        <div class="divider"></div>
+        
+        ${summaryHtml}
+        
+        <!-- 계좌번호 박스 -->
+        <div class="account-box">
+          <div class="bank-title">입금계좌 안내</div>
+          <div class="bank-num">신한 333 12 268693</div>
+          <div class="bank-owner">예금주: 강희창</div>
+        </div>
+        
+        <div class="footer">
+          <p>이용해 주셔서 감사합니다.</p>
+          ${receiptData.type === '결제' ? '<p>(교환/반품 시 영수증 지참 요망)</p>' : ''}
+        </div>
+      </div>
+    `;
+
+    // 전체 HTML (고객용 1장 + 매장 보관용 1장 + CSS 스타일)
+    const htmlContent = `
+      <html>
+      <head>
+        <title>영수증</title>
+        <style>
+          /* POS 감열식 프린터(80mm) 최적화 스타일 */
+          body { 
+            font-family: 'Malgun Gothic', 'Dotum', sans-serif; 
+            font-size: 12px; 
+            color: #000;
+            margin: 0; 
+            padding: 10px; 
+            width: 280px; 
+          }
+          
+          /* 프린터가 2장으로 인식하고 중간에 자르도록 하는 속성 */
+          .page-break { page-break-after: always; margin-bottom: 20px; }
+          
+          .header { text-align: center; margin-bottom: 10px; }
+          
+          .logo { max-width: 100px; max-height: 60px; margin: 0 auto 10px; display: block; object-fit: contain; }
+          .logo-text-fallback { font-size: 32px; font-weight: 900; margin-bottom: 10px; font-style: italic; }
+          
+          /* 좌/우 분할 레이아웃 */
+          .info-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+          .info-left { text-align: left; }
+          .store-address { font-size: 13px; margin-bottom: 4px; font-weight: bold; }
+          .store-contact { font-size: 11px; line-height: 1.5; }
+          
+          .info-right { text-align: center; border: 1px solid #eee; padding: 3px; border-radius: 4px; }
+          .info-right .qr-title { font-size: 10px; font-weight: bold; margin-bottom: 2px; }
+          .info-right .qr-code { width: 55px; height: 55px; display: block; object-fit: contain; }
+          
+          .receipt-title { font-size: 18px; font-weight: bold; margin: 10px 0 5px; letter-spacing: 2px; line-height: 1.3; }
+          .receipt-type { font-size: 14px; color: #555; }
+          .print-time { font-size: 10px; color: #555; margin-top: 5px; }
+          
+          .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
+          .divider-solid { border-bottom: 1px solid #000; margin: 10px 0; }
+          
+          .customer-info { font-weight: bold; font-size: 14px; margin: 10px 0; }
+          .item { margin-bottom: 10px; }
+          .item-name { font-weight: bold; font-size: 12px; margin-bottom: 2px; }
+          .item-calc { display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px;}
+          .misong-notice { font-size: 11px; padding-left: 10px; margin-top: 2px; font-weight: bold; }
+          
+          .summary-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; }
+          .text-discount { color: #333; }
+          .total-line { font-size: 17px; font-weight: bold; margin-top: 5px; }
+          
+          .account-box { border: 1.5px solid #000; padding: 10px; margin: 15px 0 10px; text-align: center; }
+          .account-box .bank-title { font-size: 11px; margin-bottom: 4px; }
+          .account-box .bank-num { font-size: 14px; font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px; }
+          .account-box .bank-owner { font-size: 13px; font-weight: bold; }
+          
+          .footer { text-align: center; margin-top: 15px; font-size: 11px; line-height: 1.5; }
+        </style>
+      </head>
+      <body>
+        <!-- 💡 1. 고객용 영수증 출력 (출력 후 프린터 컷팅 발생) -->
+        <div class="page-break">
+          ${generateReceiptBody('고객용')}
+        </div>
+        
+        <!-- 💡 2. 매장 보관용 영수증 출력 -->
+        <div>
+          ${generateReceiptBody('매장 보관용')}
+        </div>
+      </body>
+      </html>
+    `;
+
+    iframe.contentWindow.document.open();
+    iframe.contentWindow.document.write(htmlContent);
+    iframe.contentWindow.document.close();
+
+    // 렌더링 대기 후 인쇄 호출
+    setTimeout(() => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      // 인쇄 완료 후 iframe 제거
+      setTimeout(() => { document.body.removeChild(iframe); }, 1000);
+    }, 500);
+  };
+  // =========================================================================
 
   const handleDeleteProduct = (id) => {
     showConfirm('해당 상품을 정말 삭제하시겠습니까?\n(삭제 시 관련된 다른 내역에 영향을 줄 수 있습니다)', () => {
@@ -456,7 +653,6 @@ export default function WholesalePOS() {
 
   const handleLogout = () => {
     showConfirm('로그아웃 하시겠습니까?', () => {
-      // 💡 로그아웃 시 세션 기록 파기
       sessionStorage.removeItem('pos_logged_in');
       setIsAuthenticated(false);
       navigateTo('dashboard', true); 
@@ -503,10 +699,6 @@ export default function WholesalePOS() {
     );
   }
 
-  // =========================================================================
-  // 화면 렌더링 함수들 (상태 호이스팅을 통해 포커싱 버그 원천 차단)
-  // =========================================================================
-
   const renderSettingsView = () => {
     const moveUp = (index) => {
       if (index === 0) return;
@@ -525,6 +717,19 @@ export default function WholesalePOS() {
     return (
       <div className="p-6">
         <h2 className="text-2xl font-bold text-gray-800 mb-6">환경 설정</h2>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mb-6">
+          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Printer className="mr-2" size={20}/> 영수증 프린터 설정 안내</h3>
+          <p className="text-sm text-gray-600 mb-4 leading-relaxed bg-blue-50 p-4 rounded-lg">
+            결제, 반품, 샘플 버튼 클릭 시 화면 우측에서 자동으로 <strong>2장의 영수증(고객용/매장용)</strong>이 인쇄 창으로 나타납니다.<br/>
+            크롬(Chrome) 브라우저 기준으로 아래와 같이 한 번만 설정해 두시면 편리합니다.
+            <br/><br/>
+            1. 인쇄 대상: <b>사용하시는 POS 영수증 프린터</b> 선택<br/>
+            2. 용지 크기: <b>80mm x 297mm</b> (또는 Roll Paper) 선택<br/>
+            3. 여백: <b>최소</b> 또는 <b>없음</b><br/>
+            4. 배율: <b>기본설정</b> 또는 너비에 맞게 조절
+          </p>
+        </div>
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl">
           <h3 className="text-lg font-bold text-gray-800 mb-4">메인 메뉴 순서 변경</h3>
           <p className="text-sm text-gray-500 mb-4">위/아래 버튼을 눌러 왼쪽 메뉴의 우선순위를 변경할 수 있습니다.<br/>순서에 따라 키보드 최상단 <b className="text-blue-600">F1 ~ F7</b> 단축키가 자동 할당됩니다.</p>
@@ -826,6 +1031,20 @@ export default function WholesalePOS() {
     }
 
     showAlert(alertMsg);
+
+    // 💡 [실행] 영수증 2장 자동 출력 함수 호출 (QR코드 등 반영완료)
+    const receiptData = {
+      type,
+      customerName,
+      cart: cartWithDetails,
+      cartTotal,
+      discountAmount,
+      appliedBalance,
+      actualPayment,
+      amountAfterDiscount
+    };
+    printReceipt(receiptData);
+
     setCart([]);
     setDiscountAmount(0);
     setSelectedCustomer('');
@@ -937,10 +1156,10 @@ export default function WholesalePOS() {
             
             <div className="flex flex-col gap-2">
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => handleTransaction('샘플')} className="bg-purple-500 hover:bg-purple-400 py-3 rounded-lg font-bold transition text-sm text-white">샘플 출고</button>
-                <button onClick={() => handleTransaction('반품')} className="bg-red-500 hover:bg-red-400 py-3 rounded-lg font-bold transition text-sm text-white">반품 처리</button>
+                <button onClick={() => handleTransaction('샘플')} className="bg-purple-500 hover:bg-purple-400 py-3 rounded-lg font-bold transition text-sm text-white flex justify-center items-center"><Printer size={16} className="mr-1"/> 샘플 출고</button>
+                <button onClick={() => handleTransaction('반품')} className="bg-red-500 hover:bg-red-400 py-3 rounded-lg font-bold transition text-sm text-white flex justify-center items-center"><Printer size={16} className="mr-1"/> 반품 처리</button>
               </div>
-              <button onClick={() => handleTransaction('결제')} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-lg font-bold transition text-lg text-white shadow-md">결제 (판매)</button>
+              <button onClick={() => handleTransaction('결제')} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-lg font-bold transition text-lg text-white shadow-md flex justify-center items-center"><Printer size={20} className="mr-2"/> 결제 (판매)</button>
             </div>
           </div>
         </div>
@@ -1180,7 +1399,6 @@ export default function WholesalePOS() {
         saveItem('restockHistory', historyItem);
       }
 
-      // 💡 등록 완료 후 확인을 누르면 폼 초기화 및 뒤로가기 실행
       showAlert(`[${addProductForm.name}] 상품이 등록되었습니다.`, () => {
         setAddProductForm({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '' });
         goBack();
@@ -1189,7 +1407,6 @@ export default function WholesalePOS() {
 
     const handleProductFormKeyDown = (e) => {
       if (e.key === 'Enter' && !modalConfig.isOpen) {
-        // 💡 버튼일 경우 브라우저 기본 엔터 동작(클릭)을 수행하도록 예외 처리
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA') return;
         
         e.preventDefault();
@@ -1297,7 +1514,6 @@ export default function WholesalePOS() {
               </div>
             </div>
             <div className="flex justify-end space-x-3 pt-4 border-t">
-              {/* 💡 버튼 순서 교체 (취소 -> 등록) */}
               <button type="button" onClick={goBack} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium" tabIndex="-1">취소</button>
               <button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">상품 등록</button>
             </div>
@@ -2121,7 +2337,6 @@ export default function WholesalePOS() {
       setCustomers([...customers, newCustomer]);
       saveItem('customers', newCustomer); 
 
-      // 💡 등록 완료 후 확인을 누르면 폼 초기화 및 뒤로가기 실행
       showAlert(`[${addCustomerForm.name}] 거래처가 성공적으로 등록되었습니다.`, () => {
         setAddCustomerForm({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
         goBack();
@@ -2130,7 +2345,6 @@ export default function WholesalePOS() {
 
     const handleCustomerFormKeyDown = (e) => {
       if (e.key === 'Enter' && !modalConfig.isOpen) {
-        // 💡 텍스트에리어나 버튼은 고유 기능 활성화
         if (e.target.name === 'memo' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
         
         e.preventDefault();
@@ -2173,7 +2387,6 @@ export default function WholesalePOS() {
             </div>
             <div><label className="block text-sm font-medium text-gray-700 mb-2">메모 (참고사항)</label><textarea name="memo" value={addCustomerForm.memo} onChange={handleAddCustomerChange} rows="3" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="엔터키는 줄바꿈, 다음 칸 이동은 탭(Tab)키를 이용하세요."></textarea></div>
             <div className="flex justify-end space-x-3 pt-4 border-t">
-              {/* 💡 버튼 순서 교체 (취소 -> 등록) */}
               <button type="button" onClick={goBack} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium" tabIndex="-1">취소</button>
               <button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">거래처 등록</button>
             </div>
@@ -2183,7 +2396,6 @@ export default function WholesalePOS() {
     );
   };
 
-  // 💡 상태 변이(State Mutation) 오류 해결을 위해 함수형 업데이트(Functional Update) 사용
   const handleUpdateMisongShippedQty = (id, val) => {
     setMisongList(prev => prev.map(item => {
       if (item.id === id) {
@@ -2197,7 +2409,6 @@ export default function WholesalePOS() {
 
         if (newVal > availableToAdd) {
            showAlert(`출고 가능한 재고가 부족합니다.\n(현재 남은 재고: ${currentStock}장)`);
-           // 💡 기존 저장값(0)으로 되돌리지 않고, 출고 가능한 최대 수량으로 고정
            return { ...item, shippedQty: availableToAdd }; 
         }
         return { ...item, shippedQty: newVal };
@@ -2222,7 +2433,6 @@ export default function WholesalePOS() {
     let stockDelta = 0;
 
     if (isMisong) {
-      // 💡 구버전의 status 의존성을 삭제하고 출고 수량 변동만 정확히 체크
       if (item.shippedQty === item.savedShippedQty) return;
       stockDelta = -(item.shippedQty - item.savedShippedQty); 
       
@@ -2307,14 +2517,12 @@ export default function WholesalePOS() {
                 <th className="p-4 text-sm font-medium text-gray-500">거래처명</th>
                 <th className="p-4 text-sm font-medium text-gray-500">상품정보</th>
                 <th className="p-4 text-sm font-medium text-gray-500">{isMisong ? '전체 / 출고 수량' : '출고 / 회수 수량'}</th>
-                {/* 💡 상태와 관리 탭의 넓이를 고정하여 왼쪽으로 당겨지게 정렬 */}
                 <th className="p-4 text-sm font-medium text-gray-500 text-center w-28">상태</th>
                 <th className="p-4 text-sm font-medium text-gray-500 text-center w-32">관리</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {currentList.map(item => {
-                // 💡 미송 내역 표시를 위해 실시간 현재 재고 파악
                 const pInfo = products.find(p => p.id === item.productId);
                 const currentStock = pInfo ? pInfo.stock : 0;
                 
@@ -2343,7 +2551,6 @@ export default function WholesalePOS() {
                           </div>
                         </div>
                       </td>
-                      {/* 💡 테이블 셀(td) 대신 내부 div로 flex를 감싸 표 구조가 깨지지 않게 수정 */}
                       <td className="p-4 text-sm align-middle">
                         <div className="flex flex-col gap-1 items-center justify-center">
                           {currentStock === 0 ? (
@@ -2394,7 +2601,6 @@ export default function WholesalePOS() {
                     </>
                   )}
                   
-                  {/* 💡 관리 탭 버튼들도 내부 div에서 flex로 정렬하여 테이블 깨짐 방지 */}
                   <td className="p-4 text-sm align-middle">
                     <div className="flex space-x-2 justify-center">
                       <button 
@@ -2489,7 +2695,6 @@ export default function WholesalePOS() {
         </header>
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 flex flex-col relative">
-          {/* 💡 전역 뒤로가기 버튼 */}
           {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'inventory', 'restockHistory', 'customers', 'misong'].includes(activeMenu) && (
             <div className="px-6 pt-6 pb-2">
               <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
