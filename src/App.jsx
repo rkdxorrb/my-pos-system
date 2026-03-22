@@ -330,10 +330,10 @@ export default function WholesalePOS() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
   // =========================================================================
-  // 💡 [최종 완결판] 영수증 자동 출력 로직 + 출력 안함(0장) 기능 대응 완료
+  // 💡 [최종 완결판] 영수증 자동 출력 로직 + QR상단배치 레이아웃 + 출력 안함 옵션
   // =========================================================================
   const printReceipt = (receiptData) => {
-    // 💡 설정에서 '출력 안 함(0장)'을 선택했다면 여기서 바로 함수를 종료시킵니다.
+    // 💡 설정에서 '출력 안 함(0장)'을 선택했다면 함수를 바로 종료(출력안함)
     if (receiptPrintCount === 0) return;
 
     const iframe = document.createElement('iframe');
@@ -454,7 +454,7 @@ export default function WholesalePOS() {
       </div>
     `;
 
-    // 전체 HTML (고객용 1장 + 매장 보관용 1장 + CSS 스타일)
+    // 설정된 출력 매수(1장 또는 2장)에 따라 HTML 구성
     let printPagesHtml = `
       <div class="${receiptPrintCount === 2 ? 'page-break' : ''}">
         ${generateReceiptBody('고객용')}
@@ -469,6 +469,7 @@ export default function WholesalePOS() {
       `;
     }
 
+    // 💡 전체 HTML 및 CSS 스타일
     const htmlContent = `
       <html>
       <head>
@@ -477,11 +478,7 @@ export default function WholesalePOS() {
           /* POS 감열식 프린터(80mm) 최적화 스타일 */
           body { 
             font-family: 'Malgun Gothic', 'Dotum', sans-serif; 
-            font-size: 12px; 
-            color: #000;
-            margin: 0; 
-            padding: 10px; 
-            width: 280px; 
+            font-size: 12px; color: #000; margin: 0; padding: 10px; width: 280px; 
           }
           
           /* 프린터가 2장으로 인식하고 중간에 자르도록 하는 속성 */
@@ -1107,7 +1104,8 @@ export default function WholesalePOS() {
   };
 
   const renderSalesView = () => {
-    const CATEGORIES = ['전체', '상의', '하의', '세트', '아우터'];
+    // 💡 분류 탭에 '기타' 추가
+    const CATEGORIES = ['전체', '상의', '하의', '세트', '아우터', '기타'];
 
     const filteredProductsForSales = products.filter(p => {
       const matchCategory = salesCategoryTab === '전체' || p.category === salesCategoryTab || (!p.category && salesCategoryTab === '상의');
@@ -1234,7 +1232,7 @@ export default function WholesalePOS() {
             </div>
           </div>
           
-          <div className="flex bg-gray-200 p-1 rounded-lg mb-6 w-max">
+          <div className="flex bg-gray-200 p-1 rounded-lg mb-6 w-max flex-wrap gap-1">
             {CATEGORIES.map(cat => (
               <button 
                 key={cat}
@@ -1523,11 +1521,13 @@ export default function WholesalePOS() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">분류</label>
+                {/* 💡 분류 탭에 '기타' 추가 */}
                 <select name="category" value={addProductForm.category} onChange={handleAddProductChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
                   <option value="상의">상의</option>
                   <option value="하의">하의</option>
                   <option value="세트">세트</option>
                   <option value="아우터">아우터</option>
+                  <option value="기타">기타</option>
                 </select>
               </div>
               <div>
@@ -1743,11 +1743,13 @@ export default function WholesalePOS() {
                   
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">분류</label>
+                    {/* 💡 분류 탭에 '기타' 추가 */}
                     <select value={productEditForm.category || '상의'} onChange={e => setProductEditForm({...productEditForm, category: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                       <option value="상의">상의</option>
                       <option value="하의">하의</option>
                       <option value="세트">세트</option>
                       <option value="아우터">아우터</option>
+                      <option value="기타">기타</option>
                     </select>
                   </div>
                   <div>
