@@ -118,7 +118,6 @@ export default function WholesalePOS() {
   const [menuHistory, setMenuHistory] = useState(['dashboard']);
   const activeMenu = menuHistory[menuHistory.length - 1] || 'dashboard';
 
-  // 💡 영수증 출력 매수 상태 관리 (기본값 2장, 출력 안함(0) 기능 포함)
   const [receiptPrintCount, setReceiptPrintCount] = useState(() => {
     const savedCount = localStorage.getItem('receiptPrintCount');
     return savedCount !== null ? parseInt(savedCount, 10) : 2;
@@ -329,11 +328,7 @@ export default function WholesalePOS() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
-  // =========================================================================
-  // 💡 [최종 완결판] 영수증 자동 출력 로직 + QR상단배치 레이아웃 + 출력 안함 옵션
-  // =========================================================================
   const printReceipt = (receiptData) => {
-    // 💡 설정에서 '출력 안 함(0장)'을 선택했다면 함수를 바로 종료(출력안함)
     if (receiptPrintCount === 0) return;
 
     const iframe = document.createElement('iframe');
@@ -343,7 +338,6 @@ export default function WholesalePOS() {
     const now = new Date();
     const printTime = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
 
-    // 구매 물품 리스트 HTML 생성
     let itemsHtml = '';
     receiptData.cart.forEach(item => {
       const itemTotal = item.qty * item.price;
@@ -359,7 +353,6 @@ export default function WholesalePOS() {
       `;
     });
 
-    // 결제 요약 영역 HTML 생성
     let summaryHtml = '';
     if (receiptData.type === '결제') {
       summaryHtml = `
@@ -399,15 +392,12 @@ export default function WholesalePOS() {
       `;
     }
 
-    // 하나의 영수증(1장)을 그리는 헬퍼 함수
     const generateReceiptBody = (receiptTypeLabel) => `
       <div class="receipt">
         <div class="header">
-          <!-- 중앙 상단 로고 -->
-          <img src="B# 로고.png" alt="B# 로고" class="logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+          <img src="logo.png" alt="B# 로고" class="logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
           <div class="logo-text-fallback" style="display:none;">B#</div>
           
-          <!-- 매장정보 좌측, QR코드 우측 배치 -->
           <div class="info-row">
             <div class="info-left">
               <div class="store-address">청평화 2층 가 12호</div>
@@ -419,7 +409,7 @@ export default function WholesalePOS() {
             </div>
             <div class="info-right">
               <div class="qr-title">카톡 문의</div>
-              <img src="카톡.png" alt="카카오톡 QR" class="qr-code" onerror="this.style.display='none'; this.parentElement.innerText='(QR 없음)';">
+              <img src="qr.png" alt="카카오톡 QR" class="qr-code" onerror="this.style.display='none'; this.parentElement.innerText='(QR 없음)';">
             </div>
           </div>
 
@@ -440,7 +430,6 @@ export default function WholesalePOS() {
         
         ${summaryHtml}
         
-        <!-- 계좌번호 박스 -->
         <div class="account-box">
           <div class="bank-title">입금계좌 안내</div>
           <div class="bank-num">신한 333 12 268693</div>
@@ -454,7 +443,6 @@ export default function WholesalePOS() {
       </div>
     `;
 
-    // 설정된 출력 매수(1장 또는 2장)에 따라 HTML 구성
     let printPagesHtml = `
       <div class="${receiptPrintCount === 2 ? 'page-break' : ''}">
         ${generateReceiptBody('고객용')}
@@ -469,32 +457,24 @@ export default function WholesalePOS() {
       `;
     }
 
-    // 💡 전체 HTML 및 CSS 스타일
     const htmlContent = `
       <html>
       <head>
         <title>영수증</title>
         <style>
-          /* POS 감열식 프린터(80mm) 최적화 스타일 */
           body { 
             font-family: 'Malgun Gothic', 'Dotum', sans-serif; 
             font-size: 12px; color: #000; margin: 0; padding: 10px; width: 280px; 
           }
-          
-          /* 프린터가 2장으로 인식하고 중간에 자르도록 하는 속성 */
           .page-break { page-break-after: always; margin-bottom: 20px; }
-          
           .header { text-align: center; margin-bottom: 10px; }
-          
           .logo { max-width: 100px; max-height: 60px; margin: 0 auto 10px; display: block; object-fit: contain; }
           .logo-text-fallback { font-size: 32px; font-weight: 900; margin-bottom: 10px; font-style: italic; }
           
-          /* 좌/우 분할 레이아웃 */
           .info-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
           .info-left { text-align: left; }
           .store-address { font-size: 13px; margin-bottom: 4px; font-weight: bold; }
           .store-contact { font-size: 11px; line-height: 1.5; }
-          
           .info-right { text-align: center; border: 1px solid #eee; padding: 3px; border-radius: 4px; }
           .info-right .qr-title { font-size: 10px; font-weight: bold; margin-bottom: 2px; }
           .info-right .qr-code { width: 55px; height: 55px; display: block; object-fit: contain; }
@@ -502,25 +482,20 @@ export default function WholesalePOS() {
           .receipt-title { font-size: 18px; font-weight: bold; margin: 10px 0 5px; letter-spacing: 2px; line-height: 1.3; }
           .receipt-type { font-size: 14px; color: #555; }
           .print-time { font-size: 10px; color: #555; margin-top: 5px; }
-          
           .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
           .divider-solid { border-bottom: 1px solid #000; margin: 10px 0; }
-          
           .customer-info { font-weight: bold; font-size: 14px; margin: 10px 0; }
           .item { margin-bottom: 10px; }
           .item-name { font-weight: bold; font-size: 12px; margin-bottom: 2px; }
           .item-calc { display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px;}
           .misong-notice { font-size: 11px; padding-left: 10px; margin-top: 2px; font-weight: bold; }
-          
           .summary-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; }
           .text-discount { color: #333; }
           .total-line { font-size: 17px; font-weight: bold; margin-top: 5px; }
-          
           .account-box { border: 1.5px solid #000; padding: 10px; margin: 15px 0 10px; text-align: center; }
           .account-box .bank-title { font-size: 11px; margin-bottom: 4px; }
           .account-box .bank-num { font-size: 14px; font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px; }
           .account-box .bank-owner { font-size: 13px; font-weight: bold; }
-          
           .footer { text-align: center; margin-top: 15px; font-size: 11px; line-height: 1.5; }
         </style>
       </head>
@@ -534,15 +509,12 @@ export default function WholesalePOS() {
     iframe.contentWindow.document.write(htmlContent);
     iframe.contentWindow.document.close();
 
-    // 렌더링 대기 후 인쇄 호출
     setTimeout(() => {
       iframe.contentWindow.focus();
       iframe.contentWindow.print();
-      // 인쇄 완료 후 iframe 제거
       setTimeout(() => { document.body.removeChild(iframe); }, 1000);
     }, 500);
   };
-  // =========================================================================
 
   const handleDeleteProduct = (id) => {
     showConfirm('해당 상품을 정말 삭제하시겠습니까?\n(삭제 시 관련된 다른 내역에 영향을 줄 수 있습니다)', () => {
@@ -726,7 +698,6 @@ export default function WholesalePOS() {
       setMenuOrder(newOrder);
     };
 
-    // 로컬스토리지에 저장 및 상태 업데이트
     const handleReceiptCountChange = (count) => {
       setReceiptPrintCount(count);
       localStorage.setItem('receiptPrintCount', count.toString());
@@ -736,7 +707,6 @@ export default function WholesalePOS() {
       <div className="p-6">
         <h2 className="text-2xl font-bold text-gray-800 mb-6">환경 설정</h2>
         
-        {/* 💡 추가된 영수증 출력 매수 설정 영역 */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mb-6">
           <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Printer className="mr-2" size={20}/> 영수증 출력 설정</h3>
           
@@ -1084,7 +1054,7 @@ export default function WholesalePOS() {
 
     showAlert(alertMsg);
 
-    // 💡 영수증 자동 출력 함수 호출
+    // 영수증 자동 출력 함수 호출
     const receiptData = {
       type,
       customerName,
