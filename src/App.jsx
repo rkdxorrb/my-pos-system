@@ -118,6 +118,12 @@ export default function WholesalePOS() {
   const [menuHistory, setMenuHistory] = useState(['dashboard']);
   const activeMenu = menuHistory[menuHistory.length - 1] || 'dashboard';
 
+  // 💡 영수증 출력 매수 상태 관리 (기본값 2장, 출력 안함(0) 기능 포함)
+  const [receiptPrintCount, setReceiptPrintCount] = useState(() => {
+    const savedCount = localStorage.getItem('receiptPrintCount');
+    return savedCount !== null ? parseInt(savedCount, 10) : 2;
+  });
+
   const navigateTo = (menuId, isMainNav = false) => {
     setMenuHistory(prev => {
       if (isMainNav) return [menuId];
@@ -324,9 +330,12 @@ export default function WholesalePOS() {
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
   // =========================================================================
-  // 💡 [최종 완결판] 영수증 2장 자동 출력 로직 + QR코드/상호명 좌우정렬 레이아웃 적용
+  // 💡 [최종 완결판] 영수증 자동 출력 로직 + 출력 안함(0장) 기능 대응 완료
   // =========================================================================
   const printReceipt = (receiptData) => {
+    // 💡 설정에서 '출력 안 함(0장)'을 선택했다면 여기서 바로 함수를 종료시킵니다.
+    if (receiptPrintCount === 0) return;
+
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
     document.body.appendChild(iframe);
@@ -446,6 +455,20 @@ export default function WholesalePOS() {
     `;
 
     // 전체 HTML (고객용 1장 + 매장 보관용 1장 + CSS 스타일)
+    let printPagesHtml = `
+      <div class="${receiptPrintCount === 2 ? 'page-break' : ''}">
+        ${generateReceiptBody('고객용')}
+      </div>
+    `;
+    
+    if (receiptPrintCount === 2) {
+      printPagesHtml += `
+        <div>
+          ${generateReceiptBody('매장 보관용')}
+        </div>
+      `;
+    }
+
     const htmlContent = `
       <html>
       <head>
@@ -505,15 +528,7 @@ export default function WholesalePOS() {
         </style>
       </head>
       <body>
-        <!-- 💡 1. 고객용 영수증 출력 (출력 후 프린터 컷팅 발생) -->
-        <div class="page-break">
-          ${generateReceiptBody('고객용')}
-        </div>
-        
-        <!-- 💡 2. 매장 보관용 영수증 출력 -->
-        <div>
-          ${generateReceiptBody('매장 보관용')}
-        </div>
+        ${printPagesHtml}
       </body>
       </html>
     `;
@@ -714,19 +729,59 @@ export default function WholesalePOS() {
       setMenuOrder(newOrder);
     };
 
+    // 로컬스토리지에 저장 및 상태 업데이트
+    const handleReceiptCountChange = (count) => {
+      setReceiptPrintCount(count);
+      localStorage.setItem('receiptPrintCount', count.toString());
+    };
+
     return (
       <div className="p-6">
         <h2 className="text-2xl font-bold text-gray-800 mb-6">환경 설정</h2>
+        
+        {/* 💡 추가된 영수증 출력 매수 설정 영역 */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mb-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Printer className="mr-2" size={20}/> 영수증 프린터 설정 안내</h3>
-          <p className="text-sm text-gray-600 mb-4 leading-relaxed bg-blue-50 p-4 rounded-lg">
-            결제, 반품, 샘플 버튼 클릭 시 화면 우측에서 자동으로 <strong>2장의 영수증(고객용/매장용)</strong>이 인쇄 창으로 나타납니다.<br/>
-            크롬(Chrome) 브라우저 기준으로 아래와 같이 한 번만 설정해 두시면 편리합니다.
-            <br/><br/>
-            1. 인쇄 대상: <b>사용하시는 POS 영수증 프린터</b> 선택<br/>
-            2. 용지 크기: <b>80mm x 297mm</b> (또는 Roll Paper) 선택<br/>
-            3. 여백: <b>최소</b> 또는 <b>없음</b><br/>
-            4. 배율: <b>기본설정</b> 또는 너비에 맞게 조절
+          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Printer className="mr-2" size={20}/> 영수증 출력 설정</h3>
+          
+          <div className="flex items-center space-x-6 mb-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <span className="text-sm font-bold text-gray-700 w-24">기본 출력 매수</span>
+            
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input 
+                type="radio" name="receiptCount" value={0} 
+                checked={receiptPrintCount === 0} 
+                onChange={() => handleReceiptCountChange(0)} 
+                className="text-blue-600 focus:ring-blue-500 w-4 h-4" 
+              />
+              <span className="text-sm font-medium text-gray-800">출력 안 함</span>
+            </label>
+
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input 
+                type="radio" name="receiptCount" value={1} 
+                checked={receiptPrintCount === 1} 
+                onChange={() => handleReceiptCountChange(1)} 
+                className="text-blue-600 focus:ring-blue-500 w-4 h-4" 
+              />
+              <span className="text-sm font-medium text-gray-800">1장 (고객용만)</span>
+            </label>
+            
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input 
+                type="radio" name="receiptCount" value={2} 
+                checked={receiptPrintCount === 2} 
+                onChange={() => handleReceiptCountChange(2)} 
+                className="text-blue-600 focus:ring-blue-500 w-4 h-4" 
+              />
+              <span className="text-sm font-medium text-gray-800">2장 (고객용 + 보관용)</span>
+            </label>
+          </div>
+
+          <p className="text-sm text-gray-600 leading-relaxed">
+            크롬(Chrome) 브라우저 자동 인쇄(Kiosk Printing) 사용 시, 결제 버튼을 누르면 위에서 설정하신 매수만큼 영수증이 자동으로 인쇄됩니다.<br/><br/>
+            [프린터 권장 설정]<br/>
+            - 용지 크기: <b>80mm x 297mm</b> (또는 Roll Paper) 선택<br/>
+            - 여백: <b>최소</b> 또는 <b>없음</b>
           </p>
         </div>
 
@@ -1032,7 +1087,7 @@ export default function WholesalePOS() {
 
     showAlert(alertMsg);
 
-    // 💡 [실행] 영수증 2장 자동 출력 함수 호출 (QR코드 등 반영완료)
+    // 💡 영수증 자동 출력 함수 호출
     const receiptData = {
       type,
       customerName,
