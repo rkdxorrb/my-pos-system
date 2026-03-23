@@ -115,7 +115,8 @@ const LoginView = ({ onLogin, showAlert }) => {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">아이디</label>
-            <input autoFocus type="text" value={id} onChange={e => setId(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" required />
+            {/* 💡 [수정] style={{ imeMode: 'inactive' }} 를 추가하여 클릭 시 한영키 기본값을 영문으로 강제 설정 */}
+            <input autoFocus type="text" value={id} onChange={e => setId(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" style={{ imeMode: 'inactive' }} required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
@@ -163,6 +164,20 @@ export default function WholesalePOS() {
       return prev.slice(0, -1);
     });
   };
+
+  // 💡 [추가] 마우스 뒤로가기 버튼(브라우저 뒤로가기)을 백스페이스(앱 내 뒤로가기)와 동일하게 작동하도록 연결
+  useEffect(() => {
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+      setMenuHistory(prev => {
+        if (prev.length <= 1) return prev;
+        return prev.slice(0, -1);
+      });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
   const [menuOrder, setMenuOrder] = useState(Object.keys(MENU_CONFIG));
@@ -2694,6 +2709,9 @@ export default function WholesalePOS() {
 
     const displayType = (!selectedCustomerDetail.type || selectedCustomerDetail.type === '판매처' || selectedCustomerDetail.type === '매출처') ? '판매처' : '매입처';
 
+    // 💡 [추가] 해당 업체의 과거 거래 내역(판매/반품) 데이터 필터링
+    const customerSales = dailySales.filter(sale => sale.customerName === selectedCustomerDetail.name);
+
     return (
       <div className="px-6 pb-6 pt-2">
         <div className="flex items-center justify-between mb-6">
@@ -2782,6 +2800,46 @@ export default function WholesalePOS() {
                 <div className="col-span-2">
                   <p className="text-sm text-gray-500 mb-1">메모</p>
                   <p className="font-medium text-gray-900 whitespace-pre-wrap">{selectedCustomerDetail.memo || '없음'}</p>
+                </div>
+              </div>
+
+              {/* 💡 [추가] 거래처 상세 화면 하단에 '거래 내역 모아보기' 영역 추가 */}
+              <div className="mt-8 pt-6 border-t border-gray-100">
+                <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+                  <FileText className="mr-2 text-gray-500" size={20} /> 과거 거래 내역 모아보기
+                </h3>
+                <div className="max-h-80 overflow-y-auto border border-gray-200 rounded-lg">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 border-b sticky top-0">
+                      <tr>
+                        <th className="p-3 font-medium text-gray-500">일자 / 시간</th>
+                        <th className="p-3 font-medium text-gray-500 text-center">구분</th>
+                        <th className="p-3 font-medium text-gray-500">거래 내용</th>
+                        <th className="p-3 font-medium text-gray-500 text-right">수량</th>
+                        <th className="p-3 font-medium text-gray-500 text-right">결제 / 반품액</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {customerSales.map(sale => (
+                        <tr key={sale.id} className="hover:bg-gray-50">
+                          <td className="p-3 text-gray-600">{sale.date} {sale.time}</td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-1 rounded text-[11px] font-bold ${sale.type === '판매' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
+                              {sale.type}
+                            </span>
+                          </td>
+                          <td className="p-3 font-bold text-gray-800">{sale.productName}</td>
+                          <td className="p-3 font-medium text-right">{sale.qty}장</td>
+                          <td className={`p-3 font-bold text-right ${sale.type === '판매' ? 'text-blue-600' : 'text-gray-600'}`}>
+                            ₩ {Math.abs((sale.actualPayment ?? 0) + (sale.appliedBalance ?? 0)).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                      {customerSales.length === 0 && (
+                        <tr><td colSpan="5" className="p-6 text-center text-gray-500">과거 거래 내역이 없습니다.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
