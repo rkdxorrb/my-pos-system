@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Home, ShoppingCart, Package, Users, FileText, 
   DollarSign, Clock, Search, Plus, Minus, Trash2, 
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, Tag, Upload,
-  ChevronUp, ChevronDown, Inbox, Printer
+  ChevronUp, ChevronDown, Inbox, Printer, X
 } from 'lucide-react';
 
 // 💡 Firebase 클라우드 연동 모듈 임포트
@@ -197,6 +197,20 @@ export default function WholesalePOS() {
   const [transactionDate, setTransactionDate] = useState(today);
 
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
+
+  // 💡 [수정] 거래처 검색창 바깥 영역 클릭을 감지하기 위한 useRef 추가
+  const customerSearchRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      // 클릭한 곳이 거래처 검색 영역 내부가 아니면 드롭다운을 닫음
+      if (customerSearchRef.current && !customerSearchRef.current.contains(event.target)) {
+        setIsCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const showAlert = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'alert', message, onConfirm });
   const showConfirm = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'confirm', message, onConfirm });
@@ -1269,10 +1283,6 @@ export default function WholesalePOS() {
 
     return (
       <div className="h-full flex flex-col md:flex-row bg-gray-100">
-        {isCustomerDropdownOpen && (
-          <div className="fixed inset-0 z-10" onClick={() => setIsCustomerDropdownOpen(false)}></div>
-        )}
-
         <div className="w-full md:w-1/3 bg-white border-r border-gray-200 flex flex-col shadow-lg z-20">
           <div className="p-4 bg-gray-50 border-b space-y-3">
             <div className="flex justify-between items-center">
@@ -1288,7 +1298,7 @@ export default function WholesalePOS() {
               </div>
             </div>
             
-            <div className="relative">
+            <div className="relative" ref={customerSearchRef}>
               <h2 className="text-sm font-bold text-gray-800 mb-2">거래처 검색 (선택)</h2>
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
@@ -1304,8 +1314,22 @@ export default function WholesalePOS() {
                   }}
                   onFocus={() => setIsCustomerDropdownOpen(true)}
                   onKeyDown={handleCustomerSearchKeyDown}
-                  className={`w-full pl-9 pr-3 py-2 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 font-medium ${selectedCustomer ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white'}`}
+                  className={`w-full pl-9 pr-9 py-2 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 font-medium ${selectedCustomer ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white'}`}
                 />
+                {/* 💡 [수정] 거래처 검색어 한 번에 지우기 (X) 버튼 */}
+                {customerSearchTerm && (
+                  <button 
+                    onClick={() => {
+                      setCustomerSearchTerm('');
+                      setSelectedCustomer('');
+                      setFocusedCustomerIndex(-1);
+                      setIsCustomerDropdownOpen(true);
+                    }}
+                    className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
               </div>
               
               {isCustomerDropdownOpen && (
@@ -1417,8 +1441,14 @@ export default function WholesalePOS() {
                 placeholder="상품명, 관리명, 색상 검색..." 
                 value={salesSearchQuery}
                 onChange={(e) => setSalesSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-full focus:ring-2 focus:ring-blue-500 outline-none w-72 transition-shadow shadow-sm" 
+                className="pl-10 pr-10 py-2 border rounded-full focus:ring-2 focus:ring-blue-500 outline-none w-72 transition-shadow shadow-sm" 
               />
+              {/* 💡 [수정] 상품 검색어 지우기 (X) 버튼 */}
+              {salesSearchQuery && (
+                <button onClick={() => setSalesSearchQuery('')} className="absolute right-4 top-2.5 text-gray-400 hover:text-gray-600">
+                  <X size={18} />
+                </button>
+              )}
             </div>
           </div>
           
@@ -1504,8 +1534,14 @@ export default function WholesalePOS() {
                 placeholder="상품명, 관리명, 색상 검색..." 
                 value={inventorySearchQuery}
                 onChange={(e) => setInventorySearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-shadow shadow-sm" 
+                className="pl-10 pr-10 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-shadow shadow-sm" 
               />
+              {/* 💡 [수정] 재고 검색어 지우기 (X) 버튼 */}
+              {inventorySearchQuery && (
+                <button onClick={() => setInventorySearchQuery('')} className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+                  <X size={18} />
+                </button>
+              )}
             </div>
             <button 
               onClick={() => navigateTo('addProduct')}
@@ -2132,8 +2168,14 @@ export default function WholesalePOS() {
                 placeholder="상품명 또는 매입처 검색..." 
                 value={restockSearchQuery}
                 onChange={(e) => setRestockSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-shadow shadow-sm" 
+                className="pl-10 pr-10 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-shadow shadow-sm" 
               />
+              {/* 💡 [수정] 입고 내역 검색어 지우기 (X) 버튼 */}
+              {restockSearchQuery && (
+                <button onClick={() => setRestockSearchQuery('')} className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+                  <X size={18} />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2543,8 +2585,14 @@ export default function WholesalePOS() {
                 placeholder="업체명 검색..." 
                 value={customerSearchQuery}
                 onChange={(e) => setCustomerSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-shadow shadow-sm" 
+                className="pl-10 pr-10 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-shadow shadow-sm" 
               />
+              {/* 💡 [수정] 업체 검색어 지우기 (X) 버튼 */}
+              {customerSearchQuery && (
+                <button onClick={() => setCustomerSearchQuery('')} className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+                  <X size={18} />
+                </button>
+              )}
             </div>
             <button onClick={() => navigateTo('addCustomer')} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-blue-700">
               <Plus size={18} className="mr-2"/> 신규 등록
