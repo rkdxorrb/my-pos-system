@@ -522,7 +522,6 @@ export default function WholesalePOS() {
     iframe.contentWindow.document.close();
 
     setTimeout(() => {
-      // 포커스를 뺏어가지 못하도록 수정
       iframe.contentWindow.print();
       window.focus(); // 메인 화면으로 포커스 강제 복구
       setTimeout(() => { document.body.removeChild(iframe); }, 1000);
@@ -549,7 +548,6 @@ export default function WholesalePOS() {
     });
   };
 
-  // 구매 내역(영수증 단위) 전체 취소
   const handleCancelSale = (saleId) => {
     showConfirm("정말 삭제하시겠습니까?\n(관련된 재고, 월별 매출, 고객 잔고가 자동 복구되며, 포함된 미송 내역도 함께 삭제됩니다.)", () => {
       const sale = dailySales.find(s => s.id === saleId);
@@ -643,7 +641,6 @@ export default function WholesalePOS() {
     });
   };
 
-  // 상세 모달 내의 개별 상품 부분 삭제(취소) 함수
   const handlePartialDelete = (saleId, itemIndex) => {
     const sale = dailySales.find(s => s.id === saleId);
     if (!sale) return;
@@ -1065,7 +1062,7 @@ export default function WholesalePOS() {
     let newSampleList = [...sampleList];
     let autoMisongCount = 0;
     
-    // 💡 [버그 수정] 장바구니에 담긴 상품 정보 중, 용량을 엄청나게 차지하는 'image' 데이터(Base64)를 제거하고 저장
+    // 💡 장바구니에 담긴 상품 정보 중, 용량을 엄청나게 차지하는 'image' 데이터(Base64)를 제거하고 저장
     // 파이어베이스는 문서당 1MB 제한이 있어, 원본 이미지가 포함된 채로 거래내역이 저장되면 저장이 조용히 실패(누락)됩니다.
     let cartWithDetails = cart.map(item => {
       const { image, ...essentialData } = item;
@@ -1242,7 +1239,6 @@ export default function WholesalePOS() {
        (c.phone && c.phone.includes(customerSearchTerm)))
     );
 
-    // 💡 거래처 선택 기능 분리 (클릭 및 엔터키에서 공통 사용)
     const selectCustomer = (c) => {
       setSelectedCustomer(c.id);
       setCustomerSearchTerm(c.name);
@@ -1250,7 +1246,6 @@ export default function WholesalePOS() {
       setFocusedCustomerIndex(-1);
     };
 
-    // 💡 검색어 입력 중 키보드 조작 기능 추가
     const handleCustomerSearchKeyDown = (e) => {
       if (!isCustomerDropdownOpen) return;
 
@@ -1262,7 +1257,6 @@ export default function WholesalePOS() {
         setFocusedCustomerIndex(prev => (prev > 0 ? prev - 1 : 0));
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        // 검색결과가 딱 1개면 바로 선택, 아니면 포커스된 항목 선택
         if (filteredSalesCustomers.length === 1) {
           selectCustomer(filteredSalesCustomers[0]);
         } else if (focusedCustomerIndex >= 0 && focusedCustomerIndex < filteredSalesCustomers.length) {
@@ -1305,8 +1299,8 @@ export default function WholesalePOS() {
                   onChange={e => {
                     setCustomerSearchTerm(e.target.value);
                     setIsCustomerDropdownOpen(true);
-                    setFocusedCustomerIndex(-1); // 타이핑할 때마다 포커스 초기화
-                    if (selectedCustomer) setSelectedCustomer(''); // 검색어 수정 시 선택 상태 자동 해제
+                    setFocusedCustomerIndex(-1);
+                    if (selectedCustomer) setSelectedCustomer(''); 
                   }}
                   onFocus={() => setIsCustomerDropdownOpen(true)}
                   onKeyDown={handleCustomerSearchKeyDown}
@@ -1341,16 +1335,25 @@ export default function WholesalePOS() {
             ) : (
               cart.map(item => {
                 const pInfo = products.find(p => p.id === item.id);
-                const isOutOfStock = pInfo && item.qty > pInfo.stock;
+                // 💡 [UI 개선] 장바구니 리스트 렌더링 시, 미송수량과 잔여재고 계산 로직 추가
+                const currentStock = pInfo ? pInfo.stock : 0;
+                const misongQty = Math.max(0, item.qty - currentStock);
+                const remainingStock = Math.max(0, currentStock - item.qty);
+                
                 return (
                   <div key={item.id} className="border rounded-lg p-3 relative bg-white shadow-sm">
                     <button onClick={() => removeCartItem(item.id)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
-                    <div className="flex items-center">
+                    <div className="flex items-center mb-0.5">
                       <p className="font-bold text-gray-800 mr-2">{item.name}</p>
                       {item.originalPrice > item.price && <span className="bg-red-100 text-red-600 text-[10px] px-1 rounded font-bold mr-1">세일적용</span>}
-                      {isOutOfStock && <span className="bg-orange-100 text-orange-600 text-[10px] px-1 rounded font-bold">미송포함</span>}
+                      {/* 💡 미송 발생 시 수량을 명확하게 표시 */}
+                      {misongQty > 0 && <span className="bg-orange-100 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold border border-orange-200">미송 {misongQty}장</span>}
                     </div>
-                    <p className="text-xs text-gray-500 mb-2">{item.color} / {item.size} | ₩{item.price.toLocaleString()}</p>
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-xs text-gray-500">{item.color} / {item.size} | ₩{item.price.toLocaleString()}</p>
+                      {/* 💡 판매 후 남는 예상 재고량(잔여 재고) 표시 추가 */}
+                      <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">판매 후 재고: {remainingStock}장</span>
+                    </div>
                     <div className="flex justify-between items-center">
                       <div className="flex items-center border rounded-md">
                         <button onClick={() => updateCartQty(item.id, -1)} className="px-2 py-1 bg-gray-100 hover:bg-gray-200">-</button>
@@ -1578,7 +1581,6 @@ export default function WholesalePOS() {
     const handleAddProductChange = (e) => setAddProductForm({ ...addProductForm, [e.target.name]: e.target.value });
     const suppliers = customers.filter(c => c.type === '매입처');
 
-    // 💡 [버그 수정] 업로드하는 이미지를 자동으로 600px 리사이징 및 JPEG 압축하여 파이어베이스 용량 초과 에러 방지
     const handleImageUpload = (e) => {
       const file = e.target.files[0];
       if (file) {
@@ -1589,7 +1591,7 @@ export default function WholesalePOS() {
             const canvas = document.createElement('canvas');
             let width = img.width;
             let height = img.height;
-            const MAX_SIZE = 600; // 최대 해상도 600px로 제한
+            const MAX_SIZE = 600;
 
             if (width > height && width > MAX_SIZE) {
               height *= MAX_SIZE / width;
@@ -1604,7 +1606,6 @@ export default function WholesalePOS() {
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
             
-            // 품질 0.7의 JPEG로 압축 (용량을 획기적으로 줄여 업로드 실패 완벽 차단)
             const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
             setAddProductForm({ ...addProductForm, image: compressedBase64 });
           };
@@ -1834,7 +1835,6 @@ export default function WholesalePOS() {
       }
     };
 
-    // 💡 [버그 수정] 기존 상품 이미지 수정 시에도 동일하게 자동 리사이징/압축 적용
     const handleEditImageUpload = (e) => {
       const file = e.target.files[0];
       if (file) {
