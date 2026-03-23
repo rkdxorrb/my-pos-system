@@ -41,12 +41,14 @@ const HeaderClock = () => {
   );
 };
 
-// 💡 [버그 수정] 접속 기기의 타임존 설정에 상관없이 무조건 한국 시간(KST) 기준으로 날짜를 반환하도록 안전하게 수정
+// 💡 브라우저 환경을 타지 않는 가장 안전한 수학적 KST(한국표준시) 변환 로직 적용
 const getTodayStr = () => {
-  const date = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Seoul"}));
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const kst = new Date(utc + (9 * 3600000)); // UTC 시간 + 9시간 (밀리초)
+  const y = kst.getFullYear();
+  const m = String(kst.getMonth() + 1).padStart(2, '0');
+  const d = String(kst.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 };
 
@@ -478,35 +480,35 @@ export default function WholesalePOS() {
           }
           .page-break { page-break-after: always; margin-bottom: 20px; }
           .header { text-align: center; margin-bottom: 10px; }
-          .logo { max-width: 100px; max-height: 60px; margin: 0 auto 10px; display: block; object-fit: contain; }
-          .logo-text-fallback { font-size: 32px; font-weight: 900; margin-bottom: 10px; font-style: italic; }
+          .logo { max-width: 150px; max-height: 80px; margin: 0 auto 10px; display: block; object-fit: contain; }
+          .logo-text-fallback { font-size: 32px; font-weight: 900; margin-bottom: 10px; font-style: italic; color: #000; }
           
           .info-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
           .info-left { text-align: left; }
-          .store-address { font-size: 13px; margin-bottom: 4px; font-weight: bold; }
-          .store-contact { font-size: 11px; line-height: 1.5; }
-          .info-right { text-align: center; border: 1px solid #eee; padding: 3px; border-radius: 4px; }
-          .info-right .qr-title { font-size: 11px; font-weight: 900; margin-bottom: 2px; color: #000; }
-          .info-right .qr-code { width: 55px; height: 55px; display: block; object-fit: contain; }
+          .store-address { font-size: 13px; margin-bottom: 4px; font-weight: bold; color: #000; }
+          .store-contact { font-size: 11px; line-height: 1.5; color: #000; }
+          .info-right { text-align: center; border: 1.5px solid #ddd; padding: 4px; border-radius: 6px; }
+          .info-right .qr-title { font-size: 11px; font-weight: 900; margin-bottom: 3px; color: #000; }
+          .info-right .qr-code { width: 75px; height: 75px; display: block; object-fit: contain; }
           
-          .receipt-title { font-size: 18px; font-weight: bold; margin: 10px 0 5px; letter-spacing: 2px; line-height: 1.3; }
-          .receipt-type { font-size: 14px; color: #000; font-weight: bold; }
-          .print-time { font-size: 11px; color: #000; font-weight: bold; margin-top: 5px; }
+          .receipt-title { font-size: 18px; font-weight: 900; margin: 10px 0 5px; letter-spacing: 2px; line-height: 1.3; color: #000; }
+          .receipt-type { font-size: 14px; color: #000; font-weight: 900; }
+          .print-time { font-size: 11px; color: #000; font-weight: 900; margin-top: 5px; }
           .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
           .divider-solid { border-bottom: 1px solid #000; margin: 10px 0; }
-          .customer-info { font-weight: bold; font-size: 14px; margin: 10px 0; }
+          .customer-info { font-weight: 900; font-size: 14px; margin: 10px 0; color: #000; }
           .item { margin-bottom: 10px; }
-          .item-name { font-weight: bold; font-size: 12px; margin-bottom: 2px; }
-          .item-calc { display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px;}
-          .misong-notice { font-size: 11px; padding-left: 10px; margin-top: 2px; font-weight: bold; }
-          .summary-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; }
-          .text-discount { color: #333; }
-          .total-line { font-size: 17px; font-weight: bold; margin-top: 5px; }
-          .account-box { border: 1.5px solid #000; padding: 10px; margin: 15px 0 10px; text-align: center; }
-          .account-box .bank-title { font-size: 11px; margin-bottom: 4px; }
-          .account-box .bank-num { font-size: 14px; font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px; }
-          .account-box .bank-owner { font-size: 13px; font-weight: bold; }
-          .footer { text-align: center; margin-top: 15px; font-size: 11px; line-height: 1.5; }
+          .item-name { font-weight: 900; font-size: 12px; margin-bottom: 2px; color: #000; }
+          .item-calc { display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px; color: #000;}
+          .misong-notice { font-size: 11px; padding-left: 10px; margin-top: 2px; font-weight: 900; color: #000; }
+          .summary-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; font-weight: bold; color: #000; }
+          .text-discount { color: #000; }
+          .total-line { font-size: 17px; font-weight: 900; margin-top: 5px; color: #000; }
+          .account-box { border: 2px solid #000; padding: 10px; margin: 15px 0 10px; text-align: center; }
+          .account-box .bank-title { font-size: 11px; margin-bottom: 4px; font-weight: 900; color: #000; }
+          .account-box .bank-num { font-size: 14px; font-weight: 900; margin-bottom: 4px; letter-spacing: 0.5px; color: #000; }
+          .account-box .bank-owner { font-size: 13px; font-weight: 900; color: #000; }
+          .footer { text-align: center; margin-top: 15px; font-size: 11px; line-height: 1.5; font-weight: bold; color: #000; }
         </style>
       </head>
       <body>
@@ -520,8 +522,9 @@ export default function WholesalePOS() {
     iframe.contentWindow.document.close();
 
     setTimeout(() => {
-      iframe.contentWindow.focus();
+      // 포커스를 뺏어가지 못하도록 수정
       iframe.contentWindow.print();
+      window.focus(); // 메인 화면으로 포커스 강제 복구
       setTimeout(() => { document.body.removeChild(iframe); }, 1000);
     }, 500);
   };
@@ -649,13 +652,11 @@ export default function WholesalePOS() {
     
     showConfirm(`[${itemToDelete.name}] 상품만 구매 내역에서 부분 취소(삭제)하시겠습니까?\n해당 금액만큼 재고, 매출, 고객 잔고가 복구 수정됩니다.`, () => {
       
-      // 전체 삭제해야 하는 경우 (마지막 남은 1개 아이템 삭제 시)
       if (sale.items.length === 1) {
         handleCancelSale(saleId);
         return;
       }
 
-      // 부분 삭제 로직 시작
       let updatedProducts = [...products];
       const pIdx = updatedProducts.findIndex(p => p.id === itemToDelete.id);
       if (pIdx !== -1) {
@@ -665,7 +666,6 @@ export default function WholesalePOS() {
       }
       setProducts(updatedProducts);
 
-      // 미송 관련 복구
       if (sale.type === '판매' && itemToDelete.misongQty > 0) {
         const relatedMisong = misongList.find(m => m.transactionId === saleId && m.productId === itemToDelete.id);
         if (relatedMisong) {
@@ -681,13 +681,11 @@ export default function WholesalePOS() {
         }
       }
 
-      // 금액 계산 (할인 전 가격 기반이 아니라 판매될 때의 가격 기반)
       const refundAmount = itemToDelete.price * itemToDelete.qty;
       
       let newSale = { ...sale, items: [...sale.items] };
       newSale.items.splice(itemIndex, 1);
       
-      // 거래 내역 이름 재조합
       newSale.productName = newSale.items.length === 1 
         ? `${newSale.items[0].name} (${newSale.items[0].color}/${newSale.items[0].size})` 
         : `${newSale.items[0].name} 외 ${newSale.items.length - 1}건`;
@@ -713,7 +711,6 @@ export default function WholesalePOS() {
           newSale.appliedBalance -= balanceRefund;
         }
         
-        // 고객 잔고(예치금)로 환불
         if (balanceRefund > 0) {
            newCustomers = newCustomers.map(c => {
              if (c.name === sale.customerName) {
@@ -726,7 +723,6 @@ export default function WholesalePOS() {
            setCustomers(newCustomers);
         }
         
-        // 월별 매출 차감
         newMonthlySales = newMonthlySales.map(m => {
           if (m.date === sale.date) {
              const newM = { ...m, sales: m.sales - refundAmount, netSales: m.netSales - refundAmount };
@@ -738,11 +734,9 @@ export default function WholesalePOS() {
         setMonthlySales(newMonthlySales);
         
       } else {
-         // 반품 거래의 부분 취소 (즉, 반품했던 것을 취소함)
-         newSale.total += refundAmount; // 음수 total이므로 + 처리
-         newSale.appliedBalance -= refundAmount; // 적립해준 반품액을 다시 뺏음
+         newSale.total += refundAmount; 
+         newSale.appliedBalance -= refundAmount; 
          
-         // 고객 잔고 재차감
          newCustomers = newCustomers.map(c => {
            if (c.name === sale.customerName) {
              const newC = { ...c, balance: c.balance - refundAmount };
@@ -766,9 +760,17 @@ export default function WholesalePOS() {
 
       setDailySales(prev => prev.map(s => s.id === saleId ? newSale : s));
       saveItem('dailySales', newSale);
-      setSaleDetailModal(newSale); // 팝업 UI 업데이트
+      setSaleDetailModal(newSale); 
       
       showAlert('선택한 상품이 내역에서 성공적으로 삭제되고, 관련된 모든 데이터가 수정 반영되었습니다.');
+    });
+  };
+
+  const handleDeleteMonthlySaleRecord = (dateStr) => {
+    showConfirm(`[${dateStr}] 일자의 월별 매출 합계 기록을 완전히 삭제하시겠습니까?\n\n※ 주의: 다른 컴퓨터/오류로 인해 일별 매출에 안보이고 '월별 합계'에만 잡히는 유령 데이터를 지울 때만 사용하세요. (정상적인 내역은 일별 매출 탭에서 개별 취소해야 합니다)`, () => {
+      setMonthlySales(prev => prev.filter(m => m.date !== dateStr));
+      deleteItem('monthlySales', dateStr);
+      showAlert(`[${dateStr}] 일자의 월별 매출 합계가 삭제되었습니다.`);
     });
   };
 
@@ -804,6 +806,7 @@ export default function WholesalePOS() {
                   </button>
                 )}
                 <button 
+                  autoFocus // 💡 모달이 뜰 때 바로 포커스를 줌
                   onClick={() => {
                     if (modalConfig.onConfirm) modalConfig.onConfirm();
                     closeModal();
@@ -1062,7 +1065,12 @@ export default function WholesalePOS() {
     let newSampleList = [...sampleList];
     let autoMisongCount = 0;
     
-    let cartWithDetails = cart.map(item => ({...item}));
+    // 💡 [버그 수정] 장바구니에 담긴 상품 정보 중, 용량을 엄청나게 차지하는 'image' 데이터(Base64)를 제거하고 저장
+    // 파이어베이스는 문서당 1MB 제한이 있어, 원본 이미지가 포함된 채로 거래내역이 저장되면 저장이 조용히 실패(누락)됩니다.
+    let cartWithDetails = cart.map(item => {
+      const { image, ...essentialData } = item;
+      return essentialData;
+    });
 
     cartWithDetails.forEach((item, index) => {
       const productIndex = updatedProducts.findIndex(p => p.id === item.id);
@@ -1191,7 +1199,6 @@ export default function WholesalePOS() {
 
     showAlert(alertMsg);
 
-    // 영수증 자동 출력
     const receiptData = {
       type,
       customerName,
@@ -1207,7 +1214,8 @@ export default function WholesalePOS() {
     setCart([]);
     setDiscountAmount(0);
     setSelectedCustomer('');
-    setCustomerSearchTerm(''); // 결제 완료 후 검색어 초기화
+    setCustomerSearchTerm(''); 
+    setFocusedCustomerIndex(-1);
     setSalesSearchQuery('');
   };
 
@@ -1234,6 +1242,7 @@ export default function WholesalePOS() {
        (c.phone && c.phone.includes(customerSearchTerm)))
     );
 
+    // 💡 거래처 선택 기능 분리 (클릭 및 엔터키에서 공통 사용)
     const selectCustomer = (c) => {
       setSelectedCustomer(c.id);
       setCustomerSearchTerm(c.name);
@@ -1241,19 +1250,19 @@ export default function WholesalePOS() {
       setFocusedCustomerIndex(-1);
     };
 
+    // 💡 검색어 입력 중 키보드 조작 기능 추가
     const handleCustomerSearchKeyDown = (e) => {
       if (!isCustomerDropdownOpen) return;
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setFocusedCustomerIndex(prev => 
-          prev < filteredSalesCustomers.length - 1 ? prev + 1 : prev
-        );
+        setFocusedCustomerIndex(prev => prev < filteredSalesCustomers.length - 1 ? prev + 1 : prev);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setFocusedCustomerIndex(prev => (prev > 0 ? prev - 1 : 0));
       } else if (e.key === 'Enter') {
         e.preventDefault();
+        // 검색결과가 딱 1개면 바로 선택, 아니면 포커스된 항목 선택
         if (filteredSalesCustomers.length === 1) {
           selectCustomer(filteredSalesCustomers[0]);
         } else if (focusedCustomerIndex >= 0 && focusedCustomerIndex < filteredSalesCustomers.length) {
@@ -1266,7 +1275,6 @@ export default function WholesalePOS() {
 
     return (
       <div className="h-full flex flex-col md:flex-row bg-gray-100">
-        {/* 거래처 검색 외부 클릭 감지용 투명 오버레이 */}
         {isCustomerDropdownOpen && (
           <div className="fixed inset-0 z-10" onClick={() => setIsCustomerDropdownOpen(false)}></div>
         )}
@@ -1297,8 +1305,8 @@ export default function WholesalePOS() {
                   onChange={e => {
                     setCustomerSearchTerm(e.target.value);
                     setIsCustomerDropdownOpen(true);
-                    setFocusedCustomerIndex(-1);
-                    if (selectedCustomer) setSelectedCustomer(''); // 검색어 변경 시 선택 해제
+                    setFocusedCustomerIndex(-1); // 타이핑할 때마다 포커스 초기화
+                    if (selectedCustomer) setSelectedCustomer(''); // 검색어 수정 시 선택 상태 자동 해제
                   }}
                   onFocus={() => setIsCustomerDropdownOpen(true)}
                   onKeyDown={handleCustomerSearchKeyDown}
@@ -1363,7 +1371,6 @@ export default function WholesalePOS() {
               <span className="font-bold">₩ {cartTotal.toLocaleString()}</span>
             </div>
             
-            {/* 추가할인금액 UI 개선 */}
             <div className="flex justify-between items-center mb-4 bg-gray-700 p-2.5 rounded-lg border border-gray-600 shadow-inner">
               <span className="font-bold text-gray-200">추가 할인 금액</span>
               <div className="flex items-center">
@@ -1571,12 +1578,37 @@ export default function WholesalePOS() {
     const handleAddProductChange = (e) => setAddProductForm({ ...addProductForm, [e.target.name]: e.target.value });
     const suppliers = customers.filter(c => c.type === '매입처');
 
+    // 💡 [버그 수정] 업로드하는 이미지를 자동으로 600px 리사이징 및 JPEG 압축하여 파이어베이스 용량 초과 에러 방지
     const handleImageUpload = (e) => {
       const file = e.target.files[0];
       if (file) {
         const reader = new FileReader();
-        reader.onloadend = () => {
-          setAddProductForm({ ...addProductForm, image: reader.result });
+        reader.onloadend = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const MAX_SIZE = 600; // 최대 해상도 600px로 제한
+
+            if (width > height && width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            } else if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // 품질 0.7의 JPEG로 압축 (용량을 획기적으로 줄여 업로드 실패 완벽 차단)
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            setAddProductForm({ ...addProductForm, image: compressedBase64 });
+          };
+          img.src = event.target.result;
         };
         reader.readAsDataURL(file); 
       }
@@ -1802,12 +1834,36 @@ export default function WholesalePOS() {
       }
     };
 
+    // 💡 [버그 수정] 기존 상품 이미지 수정 시에도 동일하게 자동 리사이징/압축 적용
     const handleEditImageUpload = (e) => {
       const file = e.target.files[0];
       if (file) {
         const reader = new FileReader();
-        reader.onloadend = () => {
-          setProductEditForm({ ...productEditForm, image: reader.result });
+        reader.onloadend = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const MAX_SIZE = 600;
+
+            if (width > height && width > MAX_SIZE) {
+              height *= MAX_SIZE / width;
+              width = MAX_SIZE;
+            } else if (height > MAX_SIZE) {
+              width *= MAX_SIZE / height;
+              height = MAX_SIZE;
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            setProductEditForm({ ...productEditForm, image: compressedBase64 });
+          };
+          img.src = event.target.result;
         };
         reader.readAsDataURL(file);
       }
@@ -2340,6 +2396,9 @@ export default function WholesalePOS() {
                   <th className="p-4 text-sm font-medium text-gray-500 text-right cursor-pointer hover:bg-gray-200 transition-colors select-none" onClick={() => handleSort('netSales')}>
                     순매출액 {salesReportSort.key === 'netSales' && (salesReportSort.direction === 'asc' ? '▲' : '▼')}
                   </th>
+                  <th className="p-4 text-sm font-medium text-gray-500 text-center">
+                    관리
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -2356,10 +2415,18 @@ export default function WholesalePOS() {
                     <td className="p-4 text-sm text-gray-600 text-right">₩ {day.sales.toLocaleString()}</td>
                     <td className="p-4 text-sm text-red-500 text-right">₩ {day.returns.toLocaleString()}</td>
                     <td className="p-4 text-sm font-bold text-blue-600 text-right">₩ {day.netSales.toLocaleString()}</td>
+                    <td className="p-4 text-sm text-center">
+                      <button 
+                        onClick={() => handleDeleteMonthlySaleRecord(day.date)} 
+                        className="text-red-500 border border-red-200 bg-red-50 px-2 py-1 rounded text-[11px] hover:bg-red-100 font-bold transition whitespace-nowrap"
+                      >
+                        기록 삭제
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {sortedMonthlySales.length === 0 && (
-                  <tr><td colSpan="5" className="p-8 text-center text-gray-500">해당 월의 매출 데이터가 없습니다.</td></tr>
+                  <tr><td colSpan="6" className="p-8 text-center text-gray-500">해당 월의 매출 데이터가 없습니다.</td></tr>
                 )}
               </tbody>
               <tfoot className="bg-blue-50 border-t-2 border-blue-200">
@@ -2369,6 +2436,7 @@ export default function WholesalePOS() {
                   <td className="p-4 text-sm font-bold text-right text-gray-800">₩ {monthlyTotalSales.toLocaleString()}</td>
                   <td className="p-4 text-sm font-bold text-right text-red-500">₩ {monthlyTotalReturns.toLocaleString()}</td>
                   <td className="p-4 text-sm font-bold text-right text-blue-600">₩ {monthlyNetSales.toLocaleString()}</td>
+                  <td className="p-4"></td>
                 </tr>
               </tfoot>
             </table>
@@ -3045,6 +3113,7 @@ export default function WholesalePOS() {
                 </button>
               )}
               <button 
+                autoFocus // 💡 모달이 뜰 때 바로 포커스를 줌
                 onClick={() => {
                   if (modalConfig.onConfirm) modalConfig.onConfirm();
                   closeModal();
