@@ -41,10 +41,13 @@ const HeaderClock = () => {
   );
 };
 
+// 💡 [버그 수정] 접속 기기의 타임존 설정에 상관없이 무조건 한국 시간(KST) 기준으로 날짜를 반환하도록 안전하게 수정
 const getTodayStr = () => {
-  const now = new Date();
-  const kstOffset = 9 * 60 * 60 * 1000;
-  return new Date(now.getTime() + kstOffset).toISOString().split('T')[0];
+  const date = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Seoul"}));
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 };
 
 const MENU_CONFIG = {
@@ -157,6 +160,11 @@ export default function WholesalePOS() {
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
   const [salesCategoryTab, setSalesCategoryTab] = useState('전체');
   
+  // 판매 창 거래처 검색 관련 상태
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const [focusedCustomerIndex, setFocusedCustomerIndex] = useState(-1);
+  
   const [inventorySearchQuery, setInventorySearchQuery] = useState('');
   const [addProductForm, setAddProductForm] = useState({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '' });
   
@@ -180,6 +188,8 @@ export default function WholesalePOS() {
   const [reportMonth, setReportMonth] = useState(today.substring(0, 7));
   const [salesReportTab, setSalesReportTab] = useState('daily');
   const [salesReportSort, setSalesReportSort] = useState({ key: 'date', direction: 'desc' });
+  
+  const [saleDetailModal, setSaleDetailModal] = useState(null);
 
   const [misongTab, setMisongTab] = useState('misong');
   const [transactionDate, setTransactionDate] = useState(today);
@@ -476,12 +486,12 @@ export default function WholesalePOS() {
           .store-address { font-size: 13px; margin-bottom: 4px; font-weight: bold; }
           .store-contact { font-size: 11px; line-height: 1.5; }
           .info-right { text-align: center; border: 1px solid #eee; padding: 3px; border-radius: 4px; }
-          .info-right .qr-title { font-size: 10px; font-weight: bold; margin-bottom: 2px; }
+          .info-right .qr-title { font-size: 11px; font-weight: 900; margin-bottom: 2px; color: #000; }
           .info-right .qr-code { width: 55px; height: 55px; display: block; object-fit: contain; }
           
           .receipt-title { font-size: 18px; font-weight: bold; margin: 10px 0 5px; letter-spacing: 2px; line-height: 1.3; }
-          .receipt-type { font-size: 14px; color: #555; }
-          .print-time { font-size: 10px; color: #555; margin-top: 5px; }
+          .receipt-type { font-size: 14px; color: #000; font-weight: bold; }
+          .print-time { font-size: 11px; color: #000; font-weight: bold; margin-top: 5px; }
           .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
           .divider-solid { border-bottom: 1px solid #000; margin: 10px 0; }
           .customer-info { font-weight: bold; font-size: 14px; margin: 10px 0; }
@@ -536,6 +546,7 @@ export default function WholesalePOS() {
     });
   };
 
+  // 구매 내역(영수증 단위) 전체 취소
   const handleCancelSale = (saleId) => {
     showConfirm("정말 삭제하시겠습니까?\n(관련된 재고, 월별 매출, 고객 잔고가 자동 복구되며, 포함된 미송 내역도 함께 삭제됩니다.)", () => {
       const sale = dailySales.find(s => s.id === saleId);
@@ -555,13 +566,6 @@ export default function WholesalePOS() {
             saveItem('products', updatedProducts[pIdx]); 
           }
         });
-      } else if (sale.productId) { 
-        const pIdx = updatedProducts.findIndex(p => p.id === sale.productId);
-        if (pIdx !== -1) {
-          const stockDelta = sale.type === '판매' ? sale.qty : -sale.qty;
-          updatedProducts[pIdx].stock = Math.max(0, updatedProducts[pIdx].stock + stockDelta);
-          saveItem('products', updatedProducts[pIdx]); 
-        }
       }
 
       if (sale.type === '판매') {
@@ -631,7 +635,140 @@ export default function WholesalePOS() {
         return c;
       }));
 
+      if(saleDetailModal && saleDetailModal.id === saleId) setSaleDetailModal(null);
       showAlert("거래 내역이 성공적으로 삭제(취소)되었습니다.\n(고객 잔고 및 재고에 해당 내용이 복구 반영되었습니다.)");
+    });
+  };
+
+  // 상세 모달 내의 개별 상품 부분 삭제(취소) 함수
+  const handlePartialDelete = (saleId, itemIndex) => {
+    const sale = dailySales.find(s => s.id === saleId);
+    if (!sale) return;
+
+    const itemToDelete = sale.items[itemIndex];
+    
+    showConfirm(`[${itemToDelete.name}] 상품만 구매 내역에서 부분 취소(삭제)하시겠습니까?\n해당 금액만큼 재고, 매출, 고객 잔고가 복구 수정됩니다.`, () => {
+      
+      // 전체 삭제해야 하는 경우 (마지막 남은 1개 아이템 삭제 시)
+      if (sale.items.length === 1) {
+        handleCancelSale(saleId);
+        return;
+      }
+
+      // 부분 삭제 로직 시작
+      let updatedProducts = [...products];
+      const pIdx = updatedProducts.findIndex(p => p.id === itemToDelete.id);
+      if (pIdx !== -1) {
+        const stockDelta = sale.type === '판매' ? (itemToDelete.deductedStock ?? itemToDelete.qty) : -itemToDelete.qty;
+        updatedProducts[pIdx].stock = Math.max(0, updatedProducts[pIdx].stock + stockDelta);
+        saveItem('products', updatedProducts[pIdx]); 
+      }
+      setProducts(updatedProducts);
+
+      // 미송 관련 복구
+      if (sale.type === '판매' && itemToDelete.misongQty > 0) {
+        const relatedMisong = misongList.find(m => m.transactionId === saleId && m.productId === itemToDelete.id);
+        if (relatedMisong) {
+          if (relatedMisong.savedShippedQty > 0) {
+             const pIdx2 = updatedProducts.findIndex(p => p.id === relatedMisong.productId);
+             if (pIdx2 !== -1) {
+               updatedProducts[pIdx2].stock += relatedMisong.savedShippedQty;
+               saveItem('products', updatedProducts[pIdx2]);
+             }
+          }
+          setMisongList(prev => prev.filter(m => m.id !== relatedMisong.id));
+          deleteItem('misong', relatedMisong.id);
+        }
+      }
+
+      // 금액 계산 (할인 전 가격 기반이 아니라 판매될 때의 가격 기반)
+      const refundAmount = itemToDelete.price * itemToDelete.qty;
+      
+      let newSale = { ...sale, items: [...sale.items] };
+      newSale.items.splice(itemIndex, 1);
+      
+      // 거래 내역 이름 재조합
+      newSale.productName = newSale.items.length === 1 
+        ? `${newSale.items[0].name} (${newSale.items[0].color}/${newSale.items[0].size})` 
+        : `${newSale.items[0].name} 외 ${newSale.items.length - 1}건`;
+        
+      newSale.qty -= itemToDelete.qty;
+      
+      let newMonthlySales = [...monthlySales];
+      let newCustomers = [...customers];
+
+      if (sale.type === '판매') {
+        newSale.total -= refundAmount;
+        
+        let actualRefund = 0;
+        let balanceRefund = 0;
+        
+        if (newSale.actualPayment >= refundAmount) {
+          newSale.actualPayment -= refundAmount;
+          actualRefund = refundAmount;
+        } else {
+          actualRefund = newSale.actualPayment;
+          newSale.actualPayment = 0;
+          balanceRefund = refundAmount - actualRefund;
+          newSale.appliedBalance -= balanceRefund;
+        }
+        
+        // 고객 잔고(예치금)로 환불
+        if (balanceRefund > 0) {
+           newCustomers = newCustomers.map(c => {
+             if (c.name === sale.customerName) {
+               const newC = { ...c, balance: c.balance + balanceRefund };
+               saveItem('customers', newC);
+               return newC;
+             }
+             return c;
+           });
+           setCustomers(newCustomers);
+        }
+        
+        // 월별 매출 차감
+        newMonthlySales = newMonthlySales.map(m => {
+          if (m.date === sale.date) {
+             const newM = { ...m, sales: m.sales - refundAmount, netSales: m.netSales - refundAmount };
+             saveItem('monthlySales', newM);
+             return newM;
+          }
+          return m;
+        });
+        setMonthlySales(newMonthlySales);
+        
+      } else {
+         // 반품 거래의 부분 취소 (즉, 반품했던 것을 취소함)
+         newSale.total += refundAmount; // 음수 total이므로 + 처리
+         newSale.appliedBalance -= refundAmount; // 적립해준 반품액을 다시 뺏음
+         
+         // 고객 잔고 재차감
+         newCustomers = newCustomers.map(c => {
+           if (c.name === sale.customerName) {
+             const newC = { ...c, balance: c.balance - refundAmount };
+             saveItem('customers', newC);
+             return newC;
+           }
+           return c;
+         });
+         setCustomers(newCustomers);
+         
+         newMonthlySales = newMonthlySales.map(m => {
+          if (m.date === sale.date) {
+             const newM = { ...m, returns: m.returns - refundAmount, netSales: m.netSales + refundAmount };
+             saveItem('monthlySales', newM);
+             return newM;
+          }
+          return m;
+        });
+        setMonthlySales(newMonthlySales);
+      }
+
+      setDailySales(prev => prev.map(s => s.id === saleId ? newSale : s));
+      saveItem('dailySales', newSale);
+      setSaleDetailModal(newSale); // 팝업 UI 업데이트
+      
+      showAlert('선택한 상품이 내역에서 성공적으로 삭제되고, 관련된 모든 데이터가 수정 반영되었습니다.');
     });
   };
 
@@ -784,9 +921,9 @@ export default function WholesalePOS() {
     
     const todayNetSales = todaySalesList.reduce((sum, sale) => {
       if (sale.type === '판매') {
-        return sum + (sale.actualPayment ?? sale.total) + (sale.appliedBalance || 0);
+        return sum + (sale.actualPayment ?? 0) + (sale.appliedBalance || 0);
       } else {
-        const returnAmt = sale.appliedBalance > 0 ? sale.appliedBalance : Math.abs(sale.actualPayment ?? sale.total);
+        const returnAmt = (sale.actualPayment ?? 0) + (sale.appliedBalance || 0);
         return sum - returnAmt;
       }
     }, 0);
@@ -827,7 +964,7 @@ export default function WholesalePOS() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b bg-gray-50 text-gray-600 text-sm">
-                  <th className="p-3">시간</th><th className="p-3">거래처</th><th className="p-3">품목수</th><th className="p-3">실결제액</th>
+                  <th className="p-3">시간</th><th className="p-3">거래처</th><th className="p-3">품목수</th><th className="p-3">순매출액</th>
                 </tr>
               </thead>
               <tbody>
@@ -838,7 +975,7 @@ export default function WholesalePOS() {
                     <td className="p-3 text-sm">{sale.qty}장</td>
                     <td className={`p-3 text-sm font-bold ${sale.type === '반품' ? 'text-gray-500' : 'text-gray-800'}`}>
                       {sale.type === '반품' && sale.actualPayment === 0 ? <span className="text-[10px] text-purple-500 font-normal mr-1">예치금</span> : null}
-                      ₩ {Math.abs(sale.actualPayment ?? sale.total).toLocaleString()} {sale.type === '반품' && sale.actualPayment !== 0 && '(반품)'}
+                      ₩ {Math.abs((sale.actualPayment ?? 0) + (sale.appliedBalance ?? 0)).toLocaleString()} {sale.type === '반품' && sale.actualPayment !== 0 && '(반품)'}
                     </td>
                   </tr>
                 ))}
@@ -1054,7 +1191,7 @@ export default function WholesalePOS() {
 
     showAlert(alertMsg);
 
-    // 영수증 자동 출력 함수 호출
+    // 영수증 자동 출력
     const receiptData = {
       type,
       customerName,
@@ -1070,11 +1207,11 @@ export default function WholesalePOS() {
     setCart([]);
     setDiscountAmount(0);
     setSelectedCustomer('');
+    setCustomerSearchTerm(''); // 결제 완료 후 검색어 초기화
     setSalesSearchQuery('');
   };
 
   const renderSalesView = () => {
-    // 💡 분류 탭에 '기타' 추가
     const CATEGORIES = ['전체', '상의', '하의', '세트', '아우터', '기타'];
 
     const filteredProductsForSales = products.filter(p => {
@@ -1091,9 +1228,50 @@ export default function WholesalePOS() {
     const usedBalancePreview = Math.max(0, Math.min(availableBalance, amountAfterDiscountPreview));
     const finalPaymentPreview = Math.max(0, amountAfterDiscountPreview - usedBalancePreview);
 
+    const filteredSalesCustomers = customers.filter(c => 
+      (!c.type || c.type === '판매처' || c.type === '매출처') &&
+      (c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) || 
+       (c.phone && c.phone.includes(customerSearchTerm)))
+    );
+
+    const selectCustomer = (c) => {
+      setSelectedCustomer(c.id);
+      setCustomerSearchTerm(c.name);
+      setIsCustomerDropdownOpen(false);
+      setFocusedCustomerIndex(-1);
+    };
+
+    const handleCustomerSearchKeyDown = (e) => {
+      if (!isCustomerDropdownOpen) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFocusedCustomerIndex(prev => 
+          prev < filteredSalesCustomers.length - 1 ? prev + 1 : prev
+        );
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFocusedCustomerIndex(prev => (prev > 0 ? prev - 1 : 0));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (filteredSalesCustomers.length === 1) {
+          selectCustomer(filteredSalesCustomers[0]);
+        } else if (focusedCustomerIndex >= 0 && focusedCustomerIndex < filteredSalesCustomers.length) {
+          selectCustomer(filteredSalesCustomers[focusedCustomerIndex]);
+        }
+      } else if (e.key === 'Escape') {
+        setIsCustomerDropdownOpen(false);
+      }
+    };
+
     return (
       <div className="h-full flex flex-col md:flex-row bg-gray-100">
-        <div className="w-full md:w-1/3 bg-white border-r border-gray-200 flex flex-col shadow-lg z-10">
+        {/* 거래처 검색 외부 클릭 감지용 투명 오버레이 */}
+        {isCustomerDropdownOpen && (
+          <div className="fixed inset-0 z-10" onClick={() => setIsCustomerDropdownOpen(false)}></div>
+        )}
+
+        <div className="w-full md:w-1/3 bg-white border-r border-gray-200 flex flex-col shadow-lg z-20">
           <div className="p-4 bg-gray-50 border-b space-y-3">
             <div className="flex justify-between items-center">
               <h2 className="text-sm font-bold text-gray-800">판매 일자</h2>
@@ -1107,16 +1285,45 @@ export default function WholesalePOS() {
                 <button onClick={() => setTransactionDate(today)} className="px-2 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded text-xs font-bold hover:bg-blue-100 transition">오늘</button>
               </div>
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-gray-800 mb-2">거래처 선택</h2>
-              <select 
-                className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-                value={selectedCustomer}
-                onChange={(e) => setSelectedCustomer(e.target.value)}
-              >
-                <option value="">-- 거래처 선택 (필수) --</option>
-                {customers.filter(c => !c.type || c.type === '판매처' || c.type === '매출처').map(c => <option key={c.id} value={c.id}>{c.name} (보유 잔고: {c.balance.toLocaleString()})</option>)}
-              </select>
+            
+            <div className="relative">
+              <h2 className="text-sm font-bold text-gray-800 mb-2">거래처 검색 (선택)</h2>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                <input
+                  type="text"
+                  placeholder="상호명 또는 연락처 검색..."
+                  value={customerSearchTerm}
+                  onChange={e => {
+                    setCustomerSearchTerm(e.target.value);
+                    setIsCustomerDropdownOpen(true);
+                    setFocusedCustomerIndex(-1);
+                    if (selectedCustomer) setSelectedCustomer(''); // 검색어 변경 시 선택 해제
+                  }}
+                  onFocus={() => setIsCustomerDropdownOpen(true)}
+                  onKeyDown={handleCustomerSearchKeyDown}
+                  className={`w-full pl-9 pr-3 py-2 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 font-medium ${selectedCustomer ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white'}`}
+                />
+              </div>
+              
+              {isCustomerDropdownOpen && (
+                <div className="absolute z-30 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                  {filteredSalesCustomers.map((c, idx) => (
+                    <div 
+                      key={c.id} 
+                      onClick={() => selectCustomer(c)}
+                      onMouseEnter={() => setFocusedCustomerIndex(idx)}
+                      className={`p-3 cursor-pointer border-b last:border-0 flex justify-between items-center transition-colors ${focusedCustomerIndex === idx ? 'bg-blue-100' : 'hover:bg-gray-50'}`}
+                    >
+                      <span className={`font-bold ${focusedCustomerIndex === idx ? 'text-blue-800' : 'text-gray-800'}`}>{c.name}</span>
+                      <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">보유: ₩{c.balance.toLocaleString()}</span>
+                    </div>
+                  ))}
+                  {filteredSalesCustomers.length === 0 && (
+                    <div className="p-3 text-center text-gray-500 text-sm">검색된 거래처가 없습니다.</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           
@@ -1155,19 +1362,22 @@ export default function WholesalePOS() {
               <span>총 상품 금액</span>
               <span className="font-bold">₩ {cartTotal.toLocaleString()}</span>
             </div>
-            <div className="flex justify-between items-center mb-2 text-gray-300 text-sm">
-              <span>추가 할인 금액</span>
+            
+            {/* 추가할인금액 UI 개선 */}
+            <div className="flex justify-between items-center mb-4 bg-gray-700 p-2.5 rounded-lg border border-gray-600 shadow-inner">
+              <span className="font-bold text-gray-200">추가 할인 금액</span>
               <div className="flex items-center">
-                <span className="mr-2">- ₩</span>
+                <span className="mr-2 text-red-400 font-bold text-lg">- ₩</span>
                 <input 
                   type="number" 
                   value={discountAmount === 0 ? '' : discountAmount}
                   onChange={(e) => setDiscountAmount(Number(e.target.value))}
-                  className="w-20 p-1 text-right text-black rounded outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-24 p-2 text-right text-red-500 font-bold rounded-md outline-none focus:ring-2 focus:ring-red-400 text-base bg-white shadow-sm"
                   placeholder="0"
                 />
               </div>
             </div>
+
             <div className="flex justify-between mb-4 text-blue-300 text-sm border-b border-gray-600 pb-3">
               <span>고객 잔고 차감</span>
               <span className="font-bold">- ₩ {usedBalancePreview.toLocaleString()}</span>
@@ -1187,7 +1397,7 @@ export default function WholesalePOS() {
           </div>
         </div>
 
-        <div className="w-full md:w-2/3 p-6 overflow-y-auto">
+        <div className="w-full md:w-2/3 p-6 overflow-y-auto z-0">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold text-gray-800">상품 목록</h2>
             <div className="relative">
@@ -1491,7 +1701,6 @@ export default function WholesalePOS() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">분류</label>
-                {/* 💡 분류 탭에 '기타' 추가 */}
                 <select name="category" value={addProductForm.category} onChange={handleAddProductChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
                   <option value="상의">상의</option>
                   <option value="하의">하의</option>
@@ -1713,7 +1922,6 @@ export default function WholesalePOS() {
                   
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">분류</label>
-                    {/* 💡 분류 탭에 '기타' 추가 */}
                     <select value={productEditForm.category || '상의'} onChange={e => setProductEditForm({...productEditForm, category: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                       <option value="상의">상의</option>
                       <option value="하의">하의</option>
@@ -1970,7 +2178,15 @@ export default function WholesalePOS() {
     };
 
     const dailyTotalQty = filteredDailySales.reduce((sum, item) => sum + (item.type === '판매' ? item.qty : -item.qty), 0);
-    const dailyNetTotal = filteredDailySales.reduce((sum, item) => sum + (item.actualPayment !== undefined ? item.actualPayment : item.total), 0);
+    
+    // 순매출액 = 실결제액 + 예치금차감액
+    const dailyNetTotal = filteredDailySales.reduce((sum, item) => {
+      if (item.type === '판매') {
+        return sum + (item.actualPayment ?? 0) + (item.appliedBalance ?? 0);
+      } else {
+        return sum - ((item.actualPayment ?? 0) + (item.appliedBalance ?? 0));
+      }
+    }, 0);
 
     const monthlyTotalCount = filteredMonthlySales.reduce((sum, item) => sum + item.count, 0);
     const monthlyTotalSales = filteredMonthlySales.reduce((sum, item) => sum + item.sales, 0);
@@ -2023,12 +2239,12 @@ export default function WholesalePOS() {
                 <tr>
                   <th className="p-4 text-sm font-medium text-gray-500">시간</th>
                   <th className="p-4 text-sm font-medium text-gray-500">거래처</th>
-                  <th className="p-4 text-sm font-medium text-gray-500">거래 내역</th>
+                  <th className="p-4 text-sm font-medium text-gray-500">거래 내역 (클릭 시 상세/부분취소)</th>
                   <th className="p-4 text-sm font-medium text-gray-500 text-center">구분</th>
                   <th className="p-4 text-sm font-medium text-gray-500 text-right">총 수량</th>
                   <th className="p-4 text-sm font-medium text-gray-500 text-right">상품금액</th>
-                  <th className="p-4 text-sm font-medium text-gray-500 text-right">실결제액</th>
-                  <th className="p-4 text-sm font-medium text-gray-500 text-center">관리</th>
+                  <th className="p-4 text-sm font-medium text-gray-500 text-right">순매출액(잔고포함)</th>
+                  <th className="p-4 text-sm font-medium text-gray-500 text-center">전체취소</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -2036,7 +2252,13 @@ export default function WholesalePOS() {
                   <tr key={sale.id} className="hover:bg-gray-50">
                     <td className="p-4 text-sm text-gray-600">{sale.time}</td>
                     <td className="p-4 text-sm font-bold text-gray-800">{sale.customerName}</td>
-                    <td className="p-4 text-sm text-gray-800">{sale.productName}</td>
+                    <td 
+                      className="p-4 text-sm text-blue-600 font-bold cursor-pointer hover:underline"
+                      onClick={() => setSaleDetailModal(sale)}
+                      title="클릭하여 상세 구매 내역 보기 및 일부 삭제"
+                    >
+                      {sale.productName}
+                    </td>
                     <td className="p-4 text-sm text-center">
                       <span className={`px-2 py-1 rounded text-xs font-bold ${sale.type === '판매' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
                         {sale.type}
@@ -2050,7 +2272,7 @@ export default function WholesalePOS() {
                       {sale.type === '반품' && sale.actualPayment === 0 ? (
                         <span className="text-xs font-normal text-purple-500 block mb-0.5 whitespace-nowrap">예치금 적립</span>
                       ) : null}
-                      ₩ {Math.abs(sale.actualPayment ?? sale.total).toLocaleString()}
+                      ₩ {Math.abs((sale.actualPayment ?? 0) + (sale.appliedBalance ?? 0)).toLocaleString()}
                     </td>
                     <td className="p-4 text-sm text-center">
                       <button onClick={() => handleCancelSale(sale.id)} className="text-red-500 border border-red-200 bg-red-50 px-2 py-1 rounded text-xs hover:bg-red-100 font-bold transition">
@@ -2150,6 +2372,76 @@ export default function WholesalePOS() {
                 </tr>
               </tfoot>
             </table>
+          </div>
+        )}
+        
+        {/* 상세 구매 내역 모달 */}
+        {saleDetailModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[100] px-4">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col">
+              <div className="flex justify-between items-center border-b pb-4 mb-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">상세 구매 내역</h3>
+                  <p className="text-sm text-gray-500 mt-1">{saleDetailModal.date} {saleDetailModal.time} | 거래처: <span className="font-bold">{saleDetailModal.customerName}</span> | 구분: <span className={saleDetailModal.type === '판매' ? 'text-blue-600 font-bold' : 'text-red-600 font-bold'}>{saleDetailModal.type}</span></p>
+                </div>
+                <button onClick={() => setSaleDetailModal(null)} className="text-gray-400 hover:text-gray-600 transition bg-gray-100 hover:bg-gray-200 p-2 rounded-full"><Plus className="rotate-45" size={24}/></button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto pr-2">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 text-sm text-gray-600 border-b border-t">
+                      <th className="p-3">상품명</th>
+                      <th className="p-3">옵션</th>
+                      <th className="p-3 text-right">단가</th>
+                      <th className="p-3 text-right">수량</th>
+                      <th className="p-3 text-right">금액</th>
+                      <th className="p-3 text-center w-24">관리</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {saleDetailModal.items?.map((item, idx) => (
+                      <tr key={idx} className="border-b hover:bg-gray-50 text-sm">
+                        <td className="p-3 font-bold text-gray-800">{item.name}</td>
+                        <td className="p-3 text-gray-600">{item.color} / {item.size}</td>
+                        <td className="p-3 text-right text-gray-600">₩{item.price.toLocaleString()}</td>
+                        <td className="p-3 text-right font-medium">{item.qty}장</td>
+                        <td className="p-3 text-right font-bold text-gray-800">₩{(item.price * item.qty).toLocaleString()}</td>
+                        <td className="p-3 text-center">
+                          <button 
+                            onClick={() => handlePartialDelete(saleDetailModal.id, idx)}
+                            className="text-red-500 hover:text-white bg-red-50 hover:bg-red-500 px-2 py-1.5 rounded border border-red-200 hover:border-red-500 text-[11px] font-bold transition-colors w-full"
+                          >
+                            부분 취소
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              
+              <div className="border-t pt-4 mt-4 bg-gray-50 p-4 rounded-lg shadow-inner">
+                <div className="flex justify-between text-sm mb-1.5">
+                  <span className="text-gray-600">총 상품 금액</span>
+                  <span className="font-bold">₩{Math.abs(saleDetailModal.total).toLocaleString()}</span>
+                </div>
+                {saleDetailModal.appliedBalance > 0 && (
+                  <div className="flex justify-between text-sm mb-1.5">
+                    <span className="text-gray-600">잔고 차감 / 예치금 적립</span>
+                    <span className="font-bold text-purple-600">₩{saleDetailModal.appliedBalance.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-200">
+                  <span className="text-gray-800 font-bold">최종 실결제액</span>
+                  <span className="font-bold text-blue-600 text-xl">₩{saleDetailModal.actualPayment.toLocaleString()}</span>
+                </div>
+              </div>
+              
+              <div className="mt-5 flex justify-end">
+                <button onClick={() => setSaleDetailModal(null)} className="px-8 py-2.5 bg-gray-900 text-white rounded-lg font-bold hover:bg-gray-800 shadow-md">닫기</button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -2713,7 +3005,7 @@ export default function WholesalePOS() {
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shrink-0">
+        <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shrink-0 z-20">
           <div className="flex items-center text-gray-600"><span className="font-bold text-gray-800 mr-2">동대문 청평화 2층 가 12호</span> 매장</div>
           <div className="flex items-center space-x-6">
             <div className="flex items-center text-gray-600"><Clock className="mr-2" size={18} /><HeaderClock /></div>
@@ -2721,7 +3013,7 @@ export default function WholesalePOS() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 flex flex-col relative">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 flex flex-col relative z-0">
           {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'inventory', 'restockHistory', 'customers', 'misong'].includes(activeMenu) && (
             <div className="px-6 pt-6 pb-2">
               <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
