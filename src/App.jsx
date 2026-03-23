@@ -52,6 +52,27 @@ const getTodayStr = () => {
   return `${y}-${m}-${d}`;
 };
 
+// 💡 초성 검색을 위한 정규식(Regex) 자동 생성 헬퍼 함수 추가
+const makeChosungRegex = (searchWord) => {
+  if (!searchWord) return new RegExp('');
+  const CHOSUNG = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
+  const HANGUL_START = 44032; // '가'의 유니코드
+  
+  const regexStr = searchWord.split('').map(char => {
+    const idx = CHOSUNG.indexOf(char);
+    if (idx !== -1) {
+      // 입력한 초성이 포함된 모든 한글 유니코드 범위 계산 (예: 'ㄱ' -> '가' ~ '깋')
+      const startChar = String.fromCharCode(HANGUL_START + (idx * 588));
+      const endChar = String.fromCharCode(HANGUL_START + (idx * 588) + 587);
+      return `[${char}${startChar}-${endChar}]`;
+    }
+    // 초성이 아닌 일반 글자는 특수문자 이스케이프 처리 후 그대로 매칭
+    return char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }).join('');
+  
+  return new RegExp(regexStr, 'i');
+};
+
 const MENU_CONFIG = {
   dashboard: { label: '메인화면 (현황)', Icon: Home },
   sales: { label: '판매 / 반품', Icon: ShoppingCart },
@@ -1233,11 +1254,13 @@ export default function WholesalePOS() {
   const renderSalesView = () => {
     const CATEGORIES = ['전체', '상의', '하의', '세트', '아우터', '기타'];
 
+    // 💡 판매창 상품 목록 초성 검색 적용
+    const productSalesRegex = makeChosungRegex(salesSearchQuery);
     const filteredProductsForSales = products.filter(p => {
       const matchCategory = salesCategoryTab === '전체' || p.category === salesCategoryTab || (!p.category && salesCategoryTab === '상의');
-      const matchSearch = p.name.toLowerCase().includes(salesSearchQuery.toLowerCase()) || 
-        (p.adminName && p.adminName.toLowerCase().includes(salesSearchQuery.toLowerCase())) ||
-        (p.color && p.color.toLowerCase().includes(salesSearchQuery.toLowerCase()));
+      const matchSearch = productSalesRegex.test(p.name) || 
+        (p.adminName && productSalesRegex.test(p.adminName)) ||
+        (p.color && productSalesRegex.test(p.color));
       return matchCategory && matchSearch;
     });
 
@@ -1247,10 +1270,11 @@ export default function WholesalePOS() {
     const usedBalancePreview = Math.max(0, Math.min(availableBalance, amountAfterDiscountPreview));
     const finalPaymentPreview = Math.max(0, amountAfterDiscountPreview - usedBalancePreview);
 
+    // 💡 판매창 거래처 초성 검색 적용
+    const customerRegex = makeChosungRegex(customerSearchTerm);
     const filteredSalesCustomers = customers.filter(c => 
       (!c.type || c.type === '판매처' || c.type === '매출처') &&
-      (c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) || 
-       (c.phone && c.phone.includes(customerSearchTerm)))
+      (customerRegex.test(c.name) || (c.phone && c.phone.includes(customerSearchTerm)))
     );
 
     const selectCustomer = (c) => {
@@ -1515,10 +1539,12 @@ export default function WholesalePOS() {
   };
 
   const renderInventoryView = () => {
+    // 💡 재고 관리창 초성 검색 적용
+    const inventoryRegex = makeChosungRegex(inventorySearchQuery);
     const filteredInventory = products.filter(p => 
-      p.name.toLowerCase().includes(inventorySearchQuery.toLowerCase()) || 
-      (p.adminName && p.adminName.toLowerCase().includes(inventorySearchQuery.toLowerCase())) ||
-      (p.color && p.color.toLowerCase().includes(inventorySearchQuery.toLowerCase())) ||
+      inventoryRegex.test(p.name) || 
+      (p.adminName && inventoryRegex.test(p.adminName)) ||
+      (p.color && inventoryRegex.test(p.color)) ||
       p.id.toLowerCase().includes(inventorySearchQuery.toLowerCase())
     );
 
@@ -2123,10 +2149,12 @@ export default function WholesalePOS() {
   };
 
   const renderRestockHistoryView = () => {
+    // 💡 입고 내역창 초성 검색 적용
+    const restockRegex = makeChosungRegex(restockSearchQuery);
     const filteredHistory = restockHistory.filter(h => 
       h.date === restockSearchDate &&
-      (h.productName.toLowerCase().includes(restockSearchQuery.toLowerCase()) ||
-       (h.supplier && h.supplier.toLowerCase().includes(restockSearchQuery.toLowerCase())))
+      (restockRegex.test(h.productName) ||
+       (h.supplier && restockRegex.test(h.supplier)))
     );
 
     const handleDeleteRestock = (historyId) => {
@@ -2559,10 +2587,12 @@ export default function WholesalePOS() {
   };
 
   const renderCustomerView = () => {
+    // 💡 업체 관리창 초성 검색 적용
+    const customerListRegex = makeChosungRegex(customerSearchQuery);
     const filteredCustomers = customers.filter(c => {
       const isSalesCustomer = !c.type || c.type === '판매처' || c.type === '매출처';
       const typeMatch = customerListTab === '전체' || (customerListTab === '판매처' ? isSalesCustomer : c.type === '매입처');
-      const searchMatch = c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) || c.id.toLowerCase().includes(customerSearchQuery.toLowerCase());
+      const searchMatch = customerListRegex.test(c.name) || c.id.toLowerCase().includes(customerSearchQuery.toLowerCase());
       return typeMatch && searchMatch;
     });
 
