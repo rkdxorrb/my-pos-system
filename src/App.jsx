@@ -1699,7 +1699,18 @@ export default function WholesalePOS() {
         return;
       }
       
-      const newId = `P00${products.length + 1}`;
+      // 💡 [수정] 배열의 길이가 아닌, 기존 상품들 중 가장 큰 ID 번호를 찾아서 +1 하도록 변경
+      let maxIdNum = 0;
+      products.forEach(p => {
+        const match = p.id.match(/^P0*(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxIdNum) maxIdNum = num;
+        }
+      });
+      const nextNum = maxIdNum > 0 ? maxIdNum + 1 : products.length + 1;
+      const newId = `P${String(nextNum).padStart(3, '0')}`;
+      
       const initialStockNum = Number(addProductForm.stock) || 0;
       const newProduct = {
         id: newId,
@@ -1742,7 +1753,7 @@ export default function WholesalePOS() {
         saveItem('restockHistory', historyItem);
       }
 
-      showAlert(`[${addProductForm.name}] 상품이 등록되었습니다.`, () => {
+      showAlert(`[${addProductForm.name}] 상품이 등록되었습니다.\n(상품코드: ${newId})`, () => {
         setAddProductForm({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '' });
         goBack();
       });
@@ -2856,11 +2867,23 @@ export default function WholesalePOS() {
       e.preventDefault();
       if (!addCustomerForm.name) return showAlert("거래처명(상호)을 입력해주세요.");
       
-      const newCustomer = { id: `C00${customers.length + 1}`, type: addCustomerForm.type, name: addCustomerForm.name, phone: addCustomerForm.phone, bizNum: addCustomerForm.bizNum, balance: 0, memo: addCustomerForm.memo };
+      // 💡 [수정] 배열의 길이가 아닌 가장 큰 고객 ID를 기준으로 +1을 해줍니다.
+      let maxCustIdNum = 0;
+      customers.forEach(c => {
+        const match = c.id.match(/^C0*(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxCustIdNum) maxCustIdNum = num;
+        }
+      });
+      const nextCustNum = maxCustIdNum > 0 ? maxCustIdNum + 1 : customers.length + 1;
+      const newId = `C${String(nextCustNum).padStart(3, '0')}`;
+      
+      const newCustomer = { id: newId, type: addCustomerForm.type, name: addCustomerForm.name, phone: addCustomerForm.phone, bizNum: addCustomerForm.bizNum, balance: 0, memo: addCustomerForm.memo };
       setCustomers([...customers, newCustomer]);
       saveItem('customers', newCustomer); 
 
-      showAlert(`[${addCustomerForm.name}] 거래처가 성공적으로 등록되었습니다.`, () => {
+      showAlert(`[${addCustomerForm.name}] 거래처가 성공적으로 등록되었습니다.\n(거래처코드: ${newId})`, () => {
         setAddCustomerForm({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
         goBack();
       });
