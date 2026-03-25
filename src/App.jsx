@@ -323,8 +323,9 @@ export default function WholesalePOS() {
     };
 
     const unsubs = [
-      setupSubscription('products', setProducts, (a,b) => a.id.localeCompare(b.id)),
-      setupSubscription('customers', setCustomers, (a,b) => a.id.localeCompare(b.id)),
+      // 💡 [개선] 글자 수와 상관없이 1 -> 2 -> 9 -> 10 순으로 정렬되도록 숫자 정렬(numeric localeCompare) 적용
+      setupSubscription('products', setProducts, (a,b) => a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' })),
+      setupSubscription('customers', setCustomers, (a,b) => a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' })),
       setupSubscription('misong', setMisongList, (a,b) => b.id.localeCompare(a.id)),
       setupSubscription('samples', setSampleList, (a,b) => b.id.localeCompare(a.id)),
       setupSubscription('dailySales', setDailySales, (a,b) => {
@@ -1709,7 +1710,7 @@ export default function WholesalePOS() {
         }
       });
       const nextNum = maxIdNum > 0 ? maxIdNum + 1 : products.length + 1;
-      const newId = `P${String(nextNum).padStart(3, '0')}`;
+      const newId = `P${String(nextNum).padStart(4, '0')}`; // 💡 4자리(0000) 포맷으로 통일
       
       const initialStockNum = Number(addProductForm.stock) || 0;
       const newProduct = {
@@ -2877,7 +2878,7 @@ export default function WholesalePOS() {
         }
       });
       const nextCustNum = maxCustIdNum > 0 ? maxCustIdNum + 1 : customers.length + 1;
-      const newId = `C${String(nextCustNum).padStart(3, '0')}`;
+      const newId = `C${String(nextCustNum).padStart(4, '0')}`; // 💡 4자리(0000) 포맷으로 통일
       
       const newCustomer = { id: newId, type: addCustomerForm.type, name: addCustomerForm.name, phone: addCustomerForm.phone, bizNum: addCustomerForm.bizNum, balance: 0, memo: addCustomerForm.memo };
       setCustomers([...customers, newCustomer]);
