@@ -855,7 +855,7 @@ export default function WholesalePOS() {
                 {modalConfig.type === 'confirm' && (
                   <button 
                     onClick={closeModal} 
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition text-sm shadow-sm"
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition text-sm"
                   >
                     취소
                   </button>
@@ -866,7 +866,7 @@ export default function WholesalePOS() {
                     if (modalConfig.onConfirm) modalConfig.onConfirm();
                     closeModal();
                   }} 
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition text-sm shadow-sm"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition text-sm"
                 >
                   확인
                 </button>
@@ -1679,13 +1679,13 @@ export default function WholesalePOS() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredInventory.map(p => (
-                  // 💡 품절 상태 시 배경색 짙은 회색(bg-slate-200) 및 불투명도 조절로 강조
-                  <tr key={p.id} className={`hover:bg-blue-50/50 transition-colors ${p.stock === 0 ? 'bg-slate-200/80 opacity-70 grayscale-[30%]' : ''}`}>
+                  // 💡 품절 상태 시 배경색 및 투명도 변경
+                  <tr key={p.id} className={`hover:bg-blue-50/50 transition-colors ${p.stock === 0 ? 'bg-gray-50 opacity-70' : ''}`}>
                     <td className="p-4 text-sm font-medium text-gray-900">{p.id}</td>
                     <td className="p-4">
                       <div className="flex items-center space-x-3">
                         {p.image ? (
-                          <img src={p.image} alt={p.name} className="w-10 h-14 object-cover rounded shadow-sm flex-shrink-0" />
+                          <img src={p.image} alt={p.name} className={`w-10 h-14 object-cover rounded shadow-sm flex-shrink-0 ${p.stock === 0 ? 'grayscale' : ''}`} />
                         ) : (
                           <div className="w-10 h-14 bg-gray-100 flex items-center justify-center rounded shadow-sm text-gray-400 flex-shrink-0">
                             <Package size={16} />
@@ -1712,8 +1712,8 @@ export default function WholesalePOS() {
                       </span>
                     </td>
                     <td className="p-4 text-sm text-center">
-                      <button onClick={() => handleGoToProductDetail(p, true)} className="text-blue-600 hover:text-blue-800 font-medium bg-white px-3 py-1.5 rounded mr-2 border border-blue-200 shadow-sm">수정</button>
-                      <button onClick={() => handleDeleteProduct(p.id)} className="text-red-500 hover:text-red-700 font-medium bg-white px-3 py-1.5 rounded border border-red-200 shadow-sm">삭제</button>
+                      <button onClick={() => handleGoToProductDetail(p, true)} className="text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-3 py-1.5 rounded mr-2 border border-blue-100">수정</button>
+                      <button onClick={() => handleDeleteProduct(p.id)} className="text-red-500 hover:text-red-700 font-medium bg-red-50 px-3 py-1.5 rounded border border-red-100">삭제</button>
                     </td>
                   </tr>
                 ))}
@@ -1954,57 +1954,6 @@ export default function WholesalePOS() {
 
     const suppliers = customers.filter(c => c.type === '매입처');
 
-    // 💡 선택된 상품의 입출고 히스토리를 시간순으로 수집 및 계산 (메모이제이션 적용)
-    const productHistory = useMemo(() => {
-      if (!selectedProduct) return [];
-      const hist = [];
-
-      // 1. 입고 내역 수집
-      restockHistory.forEach(r => {
-        if (r.productId === selectedProduct.id) {
-          hist.push({
-            id: r.id,
-            date: r.date,
-            time: r.time || '00:00',
-            type: r.type || '재입고',
-            targetName: r.supplier || '자체/기타',
-            qty: r.qty,
-            isAddition: true,
-            sortKey: `${r.date} ${r.time || '00:00'}`
-          });
-        }
-      });
-
-      // 2. 판매/반품 내역 수집
-      dailySales.forEach(s => {
-        const itemMatch = s.items?.find(i => i.id === selectedProduct.id);
-        if (itemMatch) {
-          hist.push({
-            id: s.id,
-            date: s.date,
-            time: s.time || '00:00',
-            type: s.type, // '판매' or '반품'
-            targetName: s.customerName,
-            qty: itemMatch.qty,
-            isAddition: s.type === '반품', // 반품은 재고를 증가시킴
-            sortKey: `${s.date} ${s.time || '00:00'}`
-          });
-        }
-      });
-
-      // 3. 오래된 순(과거->현재)으로 정렬
-      hist.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-
-      // 4. 누적 재고 계산 (히스토리 항목별 보유재고 파악)
-      let currentRunningStock = 0;
-      hist.forEach(h => {
-        currentRunningStock += h.isAddition ? h.qty : -h.qty;
-        h.runningStock = currentRunningStock;
-      });
-
-      return hist;
-    }, [selectedProduct, restockHistory, dailySales]);
-
     const handleRestock = () => {
       if (!productRestockSupplierId) {
         showAlert('매입처를 선택하세요.');
@@ -2128,209 +2077,169 @@ export default function WholesalePOS() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl overflow-y-auto flex flex-col">
-          <div className="flex flex-col md:flex-row gap-8">
-            {/* 💡 이미지 컨테이너: aspect-[3/4] 비율 및 w-[280px] 로 크기 고정 */}
-            <div className="w-full md:w-[280px] shrink-0 aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group">
-              {productDetailEditMode ? (
-                <>
-                  {productEditForm.image ? (
-                    <img src={productEditForm.image} alt="preview" className="w-full h-full object-cover" />
-                  ) : (
-                    <><Upload size={48} className="mb-3 text-gray-400"/><span className="text-sm font-bold text-gray-500">클릭하여 이미지 등록</span></>
-                  )}
-                  <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200">
-                    <span className="text-white font-bold bg-black bg-opacity-60 px-4 py-2 rounded-lg flex items-center">
-                      <Upload size={18} className="mr-2" /> 이미지 변경
-                    </span>
-                  </div>
-                  <input type="file" accept="image/*" onChange={handleEditImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                </>
-              ) : (
-                selectedProduct.image ? (
-                  <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col md:flex-row gap-8 overflow-y-auto">
+          
+          <div className="w-full md:w-1/3 aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0">
+            {productDetailEditMode ? (
+              <>
+                {productEditForm.image ? (
+                  <img src={productEditForm.image} alt="preview" className="w-full h-full object-cover" />
                 ) : (
-                  <><Package size={64} className="mb-4 text-gray-300"/><span className="text-sm">이미지 없음</span></>
-                )
-              )}
-            </div>
-
-            <div className="flex-1">
-              {productDetailEditMode ? (
-                <div className="space-y-4 mb-6">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">노출용 상품명 (고객용)</label>
-                    <input type="text" value={productEditForm.name} onChange={e => setProductEditForm({...productEditForm, name: e.target.value})} className="w-full text-xl font-bold border-b border-gray-300 pb-1 focus:border-blue-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">관리용 상품명 (도매용)</label>
-                    <input type="text" value={productEditForm.adminName || ''} onChange={e => setProductEditForm({...productEditForm, adminName: e.target.value})} className="w-full text-md border-b border-gray-300 pb-1 focus:border-blue-500 outline-none" placeholder="비워두면 노출되지 않습니다" />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div className="bg-gray-50 p-3 rounded-lg border">
-                      <label className="block text-xs text-gray-500 mb-1">정상가 (원)</label>
-                      <input type="number" value={productEditForm.price} onChange={e => setProductEditForm({...productEditForm, price: e.target.value})} className="w-full font-bold text-gray-800 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none" />
-                    </div>
-                    <div className="bg-red-50 p-3 rounded-lg border border-red-100">
-                      <label className="block text-xs text-red-500 mb-1 font-bold">세일 할인가 (원)</label>
-                      <input type="number" value={productEditForm.salePrice || ''} placeholder="할인 없을시 비워둠" onChange={e => setProductEditForm({...productEditForm, salePrice: e.target.value})} className="w-full font-bold text-red-600 bg-transparent border-b border-red-300 focus:border-red-500 outline-none placeholder-red-300" />
-                    </div>
-                    
-                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                      <label className="block text-xs text-blue-700 mb-1 font-bold">초기 재고수량 (장)</label>
-                      <input type="number" value={productEditForm.initialStock ?? productEditForm.stock} onChange={e => setProductEditForm({...productEditForm, initialStock: e.target.value})} className="w-full font-bold text-blue-800 bg-transparent border-b border-blue-300 focus:border-blue-500 outline-none" />
-                    </div>
-
-                    <div className="bg-green-50 p-3 rounded-lg border border-green-100">
-                      <label className="block text-xs text-green-700 mb-1 font-bold">추가 입고 누적수량 (장)</label>
-                      <input type="number" value={productEditForm.restockedQty || 0} onChange={e => setProductEditForm({...productEditForm, restockedQty: e.target.value})} className="w-full font-bold text-green-800 bg-transparent border-b border-green-300 focus:border-green-500 outline-none" />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">분류</label>
-                      <select value={productEditForm.category || '상의'} onChange={e => setProductEditForm({...productEditForm, category: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                        <option value="상의">상의</option>
-                        <option value="하의">하의</option>
-                        <option value="세트">세트</option>
-                        <option value="아우터">아우터</option>
-                        <option value="기타">기타</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">색상</label>
-                      <input type="text" value={productEditForm.color} onChange={e => setProductEditForm({...productEditForm, color: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">사이즈</label>
-                      <select value={productEditForm.size || 'Free'} onChange={e => setProductEditForm({...productEditForm, size: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                        <option value="Free">Free</option>
-                        <option value="S">S</option>
-                        <option value="M">M</option>
-                        <option value="L">L</option>
-                        <option value="XL">XL</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">혼용률</label>
-                      <input type="text" value={productEditForm.material || ''} onChange={e => setProductEditForm({...productEditForm, material: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs text-gray-500 mb-1">제조국</label>
-                      <input type="text" value={productEditForm.origin || ''} onChange={e => setProductEditForm({...productEditForm, origin: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
-                    </div>
-                  </div>
+                  <><Upload size={48} className="mb-3 text-gray-400"/><span className="text-sm font-bold text-gray-500">클릭하여 이미지 등록</span></>
+                )}
+                <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200">
+                  <span className="text-white font-bold bg-black bg-opacity-60 px-4 py-2 rounded-lg flex items-center">
+                    <Upload size={18} className="mr-2" /> 이미지 변경
+                  </span>
                 </div>
+                <input type="file" accept="image/*" onChange={handleEditImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+              </>
+            ) : (
+              selectedProduct.image ? (
+                <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
               ) : (
-                <>
-                  <div className="mb-6 border-b pb-6">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{selectedProduct.id}</span>
-                      <div className="flex space-x-2">
-                        <span className="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">초기 재고: {selectedProduct.initialStock ?? selectedProduct.stock}장</span>
-                        <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-50 text-green-700 border border-green-200">누적 입고: {selectedProduct.restockedQty || 0}장</span>
-                        <span className={`px-3 py-1 rounded-full text-sm font-bold ${selectedProduct.stock === 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>현재 재고: {selectedProduct.stock}장</span>
-                      </div>
-                    </div>
-                    <h1 className="text-3xl font-bold text-gray-900 mb-1">{selectedProduct.name}</h1>
-                    {selectedProduct.adminName && <p className="text-sm text-gray-500 mb-3">관리명: {selectedProduct.adminName}</p>}
-                    
-                    {hasSale ? (
-                      <div className="flex items-end space-x-3 mt-2">
-                        <span className="text-xl text-gray-400 line-through leading-none pb-1">₩ {selectedProduct.price.toLocaleString()}</span>
-                        <span className="text-3xl font-bold text-red-600 leading-none">₩ {selectedProduct.salePrice.toLocaleString()}</span>
-                        <span className="bg-red-100 text-red-700 font-bold px-2 py-1 rounded text-sm mb-1">-{discountRate}% 세일</span>
-                      </div>
-                    ) : (
-                      <p className="text-2xl font-bold text-gray-800 mt-2">₩ {selectedProduct.price.toLocaleString()}</p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-y-6 gap-x-4">
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">분류</p>
-                      <p className="font-medium text-gray-900">{selectedProduct.category || '상의'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">색상</p>
-                      <p className="font-medium text-gray-900">{selectedProduct.color}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">사이즈</p>
-                      <p className="font-medium text-gray-900">{selectedProduct.size}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500 mb-1">혼용률</p>
-                      <p className="font-medium text-gray-900">{selectedProduct.material || '정보 없음'}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-sm text-gray-500 mb-1">제조국</p>
-                      <p className="font-medium text-gray-900">{selectedProduct.origin || '정보 없음'}</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-bold text-gray-800">추가 사입 (재입고)</p>
-                      <p className="text-xs text-gray-500">매입처와 수량을 입력하여 재고 및 입고내역을 갱신하세요.</p>
-                    </div>
-                    <div className="flex items-center space-x-2 w-full sm:w-auto">
-                      <select
-                        value={productRestockSupplierId} onChange={(e) => setProductRestockSupplierId(e.target.value)}
-                        className="w-32 p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-                      >
-                        <option value="">-- 매입처 선택 --</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                      <input
-                        type="number" value={productRestockQty} onChange={(e) => setProductRestockQty(e.target.value)}
-                        placeholder="수량" className="w-20 p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-right"
-                      />
-                      <button onClick={handleRestock} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 whitespace-nowrap shadow-sm">입고 반영</button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+                <><Package size={64} className="mb-4 text-gray-300"/><span className="text-sm">이미지 없음</span></>
+              )
+            )}
           </div>
 
-          {/* 💡 상품 입출고 히스토리 섹션 추가 */}
-          {!productDetailEditMode && productHistory.length > 0 && (
-            <div className="mt-8 pt-6 border-t border-gray-100">
-              <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-                <FileText className="mr-2 text-gray-500" size={20} /> 상품 입출고 내역
-              </h3>
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-72 overflow-y-auto">
-                <div className="space-y-2">
-                  {productHistory.map((h, i) => {
-                    const shortDate = h.date.substring(5).replace('-', '/'); // 03-10 포맷 -> 03/10
-                    return (
-                      <div key={i} className="flex justify-between items-center py-2.5 border-b border-gray-200 last:border-0 text-sm hover:bg-gray-100 px-2 rounded transition-colors">
-                        <div className="flex items-center">
-                          <span className="text-gray-500 font-bold w-12">{shortDate}</span>
-                          <span className={`font-bold px-2 py-0.5 rounded text-[11px] mr-3 ${
-                            h.type === '판매' ? 'bg-blue-100 text-blue-700' :
-                            h.type === '반품' ? 'bg-red-100 text-red-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>{h.type}</span>
-                          <span className="text-gray-800 font-medium">
-                            {h.type === '판매' || h.type === '반품' ? `${h.targetName} ` : ''}
-                            <b className={h.isAddition ? "text-green-600 ml-1" : "text-blue-600 ml-1"}>
-                               {h.isAddition ? '+' : '-'}{h.qty}장
-                            </b>
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-500 font-bold bg-white border border-gray-200 shadow-sm px-2.5 py-1 rounded">
-                          보유재고 <span className={`ml-1 ${h.runningStock === 0 ? 'text-red-500' : 'text-gray-900'}`}>{h.runningStock}장</span>
-                        </div>
-                      </div>
-                    )
-                  })}
+          <div className="w-full md:w-2/3">
+            {productDetailEditMode ? (
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">노출용 상품명 (고객용)</label>
+                  <input type="text" value={productEditForm.name} onChange={e => setProductEditForm({...productEditForm, name: e.target.value})} className="w-full text-xl font-bold border-b border-gray-300 pb-1 focus:border-blue-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">관리용 상품명 (도매용)</label>
+                  <input type="text" value={productEditForm.adminName || ''} onChange={e => setProductEditForm({...productEditForm, adminName: e.target.value})} className="w-full text-md border-b border-gray-300 pb-1 focus:border-blue-500 outline-none" placeholder="비워두면 노출되지 않습니다" />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div className="bg-gray-50 p-3 rounded-lg border">
+                    <label className="block text-xs text-gray-500 mb-1">정상가 (원)</label>
+                    <input type="number" value={productEditForm.price} onChange={e => setProductEditForm({...productEditForm, price: e.target.value})} className="w-full font-bold text-gray-800 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none" />
+                  </div>
+                  <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                    <label className="block text-xs text-red-500 mb-1 font-bold">세일 할인가 (원)</label>
+                    <input type="number" value={productEditForm.salePrice || ''} placeholder="할인 없을시 비워둠" onChange={e => setProductEditForm({...productEditForm, salePrice: e.target.value})} className="w-full font-bold text-red-600 bg-transparent border-b border-red-300 focus:border-red-500 outline-none placeholder-red-300" />
+                  </div>
+                  
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                    <label className="block text-xs text-blue-700 mb-1 font-bold">초기 재고수량 (장)</label>
+                    <input type="number" value={productEditForm.initialStock ?? productEditForm.stock} onChange={e => setProductEditForm({...productEditForm, initialStock: e.target.value})} className="w-full font-bold text-blue-800 bg-transparent border-b border-blue-300 focus:border-blue-500 outline-none" />
+                  </div>
+
+                  <div className="bg-green-50 p-3 rounded-lg border border-green-100">
+                    <label className="block text-xs text-green-700 mb-1 font-bold">추가 입고 누적수량 (장)</label>
+                    <input type="number" value={productEditForm.restockedQty || 0} onChange={e => setProductEditForm({...productEditForm, restockedQty: e.target.value})} className="w-full font-bold text-green-800 bg-transparent border-b border-green-300 focus:border-green-500 outline-none" />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">분류</label>
+                    <select value={productEditForm.category || '상의'} onChange={e => setProductEditForm({...productEditForm, category: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="상의">상의</option>
+                      <option value="하의">하의</option>
+                      <option value="세트">세트</option>
+                      <option value="아우터">아우터</option>
+                      <option value="기타">기타</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">색상</label>
+                    <input type="text" value={productEditForm.color} onChange={e => setProductEditForm({...productEditForm, color: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">사이즈</label>
+                    <select value={productEditForm.size || 'Free'} onChange={e => setProductEditForm({...productEditForm, size: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                      <option value="Free">Free</option>
+                      <option value="S">S</option>
+                      <option value="M">M</option>
+                      <option value="L">L</option>
+                      <option value="XL">XL</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">혼용률</label>
+                    <input type="text" value={productEditForm.material || ''} onChange={e => setProductEditForm({...productEditForm, material: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">제조국</label>
+                    <input type="text" value={productEditForm.origin || ''} onChange={e => setProductEditForm({...productEditForm, origin: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            ) : (
+              <>
+                <div className="mb-6 border-b pb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{selectedProduct.id}</span>
+                    <div className="flex space-x-2">
+                      <span className="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">초기 재고: {selectedProduct.initialStock ?? selectedProduct.stock}장</span>
+                      <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-50 text-green-700 border border-green-200">누적 입고: {selectedProduct.restockedQty || 0}장</span>
+                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${selectedProduct.stock === 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>현재 재고: {selectedProduct.stock}장</span>
+                    </div>
+                  </div>
+                  <h1 className="text-3xl font-bold text-gray-900 mb-1">{selectedProduct.name}</h1>
+                  {selectedProduct.adminName && <p className="text-sm text-gray-500 mb-3">관리명: {selectedProduct.adminName}</p>}
+                  
+                  {hasSale ? (
+                    <div className="flex items-end space-x-3 mt-2">
+                      <span className="text-xl text-gray-400 line-through leading-none pb-1">₩ {selectedProduct.price.toLocaleString()}</span>
+                      <span className="text-3xl font-bold text-red-600 leading-none">₩ {selectedProduct.salePrice.toLocaleString()}</span>
+                      <span className="bg-red-100 text-red-700 font-bold px-2 py-1 rounded text-sm mb-1">-{discountRate}% 세일</span>
+                    </div>
+                  ) : (
+                    <p className="text-2xl font-bold text-gray-800 mt-2">₩ {selectedProduct.price.toLocaleString()}</p>
+                  )}
+                </div>
 
+                <div className="grid grid-cols-2 gap-y-6 gap-x-4">
+                  <div>
+                    <p className="text-sm text-gray-500 mb-1">분류</p>
+                    <p className="font-medium text-gray-900">{selectedProduct.category || '상의'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 mb-1">색상</p>
+                    <p className="font-medium text-gray-900">{selectedProduct.color}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 mb-1">사이즈</p>
+                    <p className="font-medium text-gray-900">{selectedProduct.size}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 mb-1">혼용률</p>
+                    <p className="font-medium text-gray-900">{selectedProduct.material || '정보 없음'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-sm text-gray-500 mb-1">제조국</p>
+                    <p className="font-medium text-gray-900">{selectedProduct.origin || '정보 없음'}</p>
+                  </div>
+                </div>
+
+                <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">추가 사입 (재입고)</p>
+                    <p className="text-xs text-gray-500">매입처와 수량을 입력하여 재고 및 입고내역을 갱신하세요.</p>
+                  </div>
+                  <div className="flex items-center space-x-2 w-full sm:w-auto">
+                    <select
+                      value={productRestockSupplierId} onChange={(e) => setProductRestockSupplierId(e.target.value)}
+                      className="w-32 p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                    >
+                      <option value="">-- 매입처 선택 --</option>
+                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <input
+                      type="number" value={productRestockQty} onChange={(e) => setProductRestockQty(e.target.value)}
+                      placeholder="수량" className="w-20 p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-right"
+                    />
+                    <button onClick={handleRestock} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 whitespace-nowrap shadow-sm">입고 반영</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     );
