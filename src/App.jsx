@@ -362,7 +362,6 @@ export default function WholesalePOS() {
         return; 
       }
 
-      // 💡 [추가] 상세 내역 팝업 열려 있을 때 ESC키로 닫기
       if (saleDetailModal && e.key === 'Escape') {
         e.preventDefault();
         setSaleDetailModal(null);
@@ -400,7 +399,6 @@ export default function WholesalePOS() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
-  // 💡 [수정] 영수증 출력 함수 (거래일시와 출력일시 분리 및 QR 오류 처리 개선)
   const printReceipt = (receiptData) => {
     if (receiptPrintCount === 0) return;
 
@@ -410,7 +408,6 @@ export default function WholesalePOS() {
 
     const now = new Date();
     const printTime = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
-    // 💡 거래일시(시간 포함) 대신 거래일자만 표시
     const txDate = receiptData.date || now.toLocaleDateString();
 
     let itemsHtml = '';
@@ -420,7 +417,7 @@ export default function WholesalePOS() {
         <div class="item">
           <div class="item-name">${item.name} (${item.color}/${item.size})</div>
           <div class="item-calc">
-            <span>${item.price.toLocaleString()} x ${item.qty}</span>
+            <span>${(item.price || 0).toLocaleString()} x ${item.qty}</span>
             <span>${itemTotal.toLocaleString()}</span>
           </div>
           ${item.misongQty > 0 ? `<div class="misong-notice">* 미송포함: ${item.misongQty}장</div>` : ''}
@@ -467,7 +464,6 @@ export default function WholesalePOS() {
       `;
     }
 
-    // 💡 QR onerror 텍스트 대체를 보다 깔끔하게 적용
     const generateReceiptBody = (receiptTypeLabel) => `
       <div class="receipt">
         <div class="header">
@@ -1458,7 +1454,7 @@ export default function WholesalePOS() {
                       className={`p-3 cursor-pointer border-b last:border-0 flex justify-between items-center transition-colors ${focusedCustomerIndex === idx ? 'bg-blue-100' : 'hover:bg-gray-50'}`}
                     >
                       <span className={`font-bold ${focusedCustomerIndex === idx ? 'text-blue-800' : 'text-gray-800'}`}>{c.name}</span>
-                      <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">보유: ₩{c.balance.toLocaleString()}</span>
+                      <span className="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">보유: ₩{(c.balance || 0).toLocaleString()}</span>
                     </div>
                   ))}
                   {filteredSalesCustomers.length === 0 && (
@@ -1488,7 +1484,7 @@ export default function WholesalePOS() {
                       {misongQty > 0 && <span className="bg-orange-100 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold border border-orange-200">미송 {misongQty}장</span>}
                     </div>
                     <div className="flex justify-between items-center mb-2">
-                      <p className="text-xs text-gray-500">{item.color} / {item.size} | ₩{item.price.toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">{item.color} / {item.size} | ₩{(item.price || 0).toLocaleString()}</p>
                       <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">잔여 재고: {remainingStock}장</span>
                     </div>
                     <div className="flex justify-between items-center">
@@ -1603,11 +1599,11 @@ export default function WholesalePOS() {
                   <div className="flex justify-between items-end">
                     {hasSale ? (
                       <div className="flex flex-col">
-                        <span className="text-[11px] text-gray-400 line-through leading-none mb-0.5">₩ {product.price.toLocaleString()}</span>
-                        <span className="font-bold text-red-600 leading-none">₩ {product.salePrice.toLocaleString()}</span>
+                        <span className="text-[11px] text-gray-400 line-through leading-none mb-0.5">₩ {(product.price || 0).toLocaleString()}</span>
+                        <span className="font-bold text-red-600 leading-none">₩ {(product.salePrice || 0).toLocaleString()}</span>
                       </div>
                     ) : (
-                      <span className="font-bold text-blue-600">₩ {product.price.toLocaleString()}</span>
+                      <span className="font-bold text-blue-600">₩ {(product.price || 0).toLocaleString()}</span>
                     )}
                     <span className={`text-xs px-2 py-1 rounded font-medium ${product.stock === 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>재고: {product.stock}</span>
                   </div>
@@ -1705,7 +1701,7 @@ export default function WholesalePOS() {
                     </td>
                     <td className="p-4 text-sm text-gray-600">{p.color}</td>
                     <td className="p-4 text-sm text-gray-600">{p.size}</td>
-                    <td className="p-4 text-sm font-medium">₩ {p.price.toLocaleString()}</td>
+                    <td className="p-4 text-sm font-medium">₩ {(p.price || 0).toLocaleString()}</td>
                     <td className="p-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-bold ${p.stock === 0 ? 'bg-red-100 text-red-700 border border-red-200' : p.stock < 20 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
                         {p.stock === 0 ? '품절' : `${p.stock} 장`}
@@ -1996,7 +1992,16 @@ export default function WholesalePOS() {
       hist.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 
       // 4. 누적 재고 계산 (히스토리 항목별 보유재고 파악)
-      let currentRunningStock = 0;
+      let totalDelta = 0;
+      hist.forEach(h => {
+        totalDelta += h.isAddition ? h.qty : -h.qty;
+      });
+      
+      // 역산하여 초기 재고 추정 (기존 initialStock이 있으면 사용, 없으면 현재 재고에서 역산)
+      let currentRunningStock = selectedProduct.initialStock !== undefined 
+        ? selectedProduct.initialStock 
+        : Math.max(0, (selectedProduct.stock || 0) - totalDelta);
+
       hist.forEach(h => {
         currentRunningStock += h.isAddition ? h.qty : -h.qty;
         h.runningStock = currentRunningStock;
@@ -2237,12 +2242,12 @@ export default function WholesalePOS() {
                     
                     {hasSale ? (
                       <div className="flex items-end space-x-3 mt-2">
-                        <span className="text-xl text-gray-400 line-through leading-none pb-1">₩ {selectedProduct.price.toLocaleString()}</span>
-                        <span className="text-3xl font-bold text-red-600 leading-none">₩ {selectedProduct.salePrice.toLocaleString()}</span>
+                        <span className="text-xl text-gray-400 line-through leading-none pb-1">₩ {(selectedProduct.price || 0).toLocaleString()}</span>
+                        <span className="text-3xl font-bold text-red-600 leading-none">₩ {(selectedProduct.salePrice || 0).toLocaleString()}</span>
                         <span className="bg-red-100 text-red-700 font-bold px-2 py-1 rounded text-sm mb-1">-{discountRate}% 세일</span>
                       </div>
                     ) : (
-                      <p className="text-2xl font-bold text-gray-800 mt-2">₩ {selectedProduct.price.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-gray-800 mt-2">₩ {(selectedProduct.price || 0).toLocaleString()}</p>
                     )}
                   </div>
 
@@ -2303,7 +2308,7 @@ export default function WholesalePOS() {
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-72 overflow-y-auto">
                 <div className="space-y-2">
                   {productHistory.map((h, i) => {
-                    const shortDate = h.date.substring(5).replace('-', '/'); // 03-10 포맷 -> 03/10
+                    const shortDate = h.date ? h.date.substring(5).replace('-', '/') : '이전'; // 03-10 포맷 -> 03/10
                     return (
                       <div key={i} className="flex justify-between items-center py-2.5 border-b border-gray-200 last:border-0 text-sm hover:bg-gray-100 px-2 rounded transition-colors">
                         <div className="flex items-center">
@@ -2883,7 +2888,7 @@ export default function WholesalePOS() {
                     </td>
                     <td className="p-4 text-sm text-gray-600">{c.phone}</td>
                     <td className="p-4 text-sm text-gray-600">{c.bizNum || '-'}</td>
-                    <td className="p-4 text-sm font-bold"><span className={c.balance > 0 ? 'text-blue-600' : 'text-gray-800'}>₩ {c.balance.toLocaleString()}</span></td>
+                    <td className="p-4 text-sm font-bold"><span className={c.balance > 0 ? 'text-blue-600' : 'text-gray-800'}>₩ {(c.balance || 0).toLocaleString()}</span></td>
                     <td className="p-4 text-sm text-gray-500">{c.memo}</td>
                     <td className="p-4 text-sm text-center whitespace-nowrap">
                       <button onClick={() => handleGoToCustomerDetail(c, true)} className="text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-3 py-1.5 rounded text-xs mr-2 border border-blue-100 shadow-sm">수정</button>
@@ -2992,7 +2997,7 @@ export default function WholesalePOS() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-gray-500 mb-1">보유 잔고</p>
-                    <p className={`text-2xl font-bold ${selectedCustomerDetail.balance > 0 ? 'text-blue-600' : 'text-gray-800'}`}>₩ {selectedCustomerDetail.balance.toLocaleString()}</p>
+                    <p className={`text-2xl font-bold ${selectedCustomerDetail.balance > 0 ? 'text-blue-600' : 'text-gray-800'}`}>₩ {(selectedCustomerDetail.balance || 0).toLocaleString()}</p>
                   </div>
                 </div>
 
@@ -3510,9 +3515,9 @@ export default function WholesalePOS() {
                     <tr key={idx} className="border-b hover:bg-gray-50 text-sm">
                       <td className="p-3 font-bold text-gray-800">{item.name}</td>
                       <td className="p-3 text-gray-600">{item.color} / {item.size}</td>
-                      <td className="p-3 text-right text-gray-600">₩{item.price.toLocaleString()}</td>
+                      <td className="p-3 text-right text-gray-600">₩{(item.price || 0).toLocaleString()}</td>
                       <td className="p-3 text-right font-medium">{item.qty}장</td>
-                      <td className="p-3 text-right font-bold text-gray-800">₩{(item.price * item.qty).toLocaleString()}</td>
+                      <td className="p-3 text-right font-bold text-gray-800">₩{((item.price || 0) * item.qty).toLocaleString()}</td>
                       <td className="p-3 text-center">
                         <button 
                           onClick={() => handlePartialDelete(saleDetailModal.id, idx)}
@@ -3535,12 +3540,12 @@ export default function WholesalePOS() {
               {saleDetailModal.appliedBalance > 0 && (
                 <div className="flex justify-between text-sm mb-1.5">
                   <span className="text-gray-600">잔고 차감 / 예치금 적립</span>
-                  <span className="font-bold text-purple-600">₩{saleDetailModal.appliedBalance.toLocaleString()}</span>
+                  <span className="font-bold text-purple-600">₩{(saleDetailModal.appliedBalance || 0).toLocaleString()}</span>
                 </div>
               )}
               <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-200">
                 <span className="text-gray-800 font-bold">최종 실결제액</span>
-                <span className="font-bold text-blue-600 text-xl">₩{saleDetailModal.actualPayment.toLocaleString()}</span>
+                <span className="font-bold text-blue-600 text-xl">₩{(saleDetailModal.actualPayment || 0).toLocaleString()}</span>
               </div>
             </div>
             
