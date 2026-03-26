@@ -410,7 +410,8 @@ export default function WholesalePOS() {
 
     const now = new Date();
     const printTime = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
-    const txTime = receiptData.date ? `${receiptData.date} ${receiptData.time || ''}` : printTime;
+    // 💡 거래일시(시간 포함) 대신 거래일자만 표시
+    const txDate = receiptData.date || now.toLocaleDateString();
 
     let itemsHtml = '';
     receiptData.cart.forEach(item => {
@@ -474,7 +475,7 @@ export default function WholesalePOS() {
           <div class="logo-text-fallback" style="display:none;">B#</div>
           
           <div class="info-row">
-            <div class="info-left">
+            <div class="info-center">
               <div class="store-address">청평화 2층 가 12호</div>
               <div class="store-contact">
                 Tel : 010-7208-8833<br>
@@ -482,17 +483,13 @@ export default function WholesalePOS() {
                 E-mail : bsharp@kakao.com
               </div>
             </div>
-            <div class="info-right">
-              <div class="qr-title">카톡 문의</div>
-              <img src="qr.png" alt="QR" class="qr-code" onerror="this.parentElement.innerHTML='<div style=\\\'padding:10px;font-size:10px;color:#999;font-weight:bold;\\\'>QR 없음</div>';">
-            </div>
           </div>
 
           <div class="receipt-title">
             영 수 증 (${receiptData.type})<br>
             <span class="receipt-type">[${receiptTypeLabel}]</span>
           </div>
-          <div class="tx-time">거래일시 : ${txTime}</div>
+          <div class="tx-time">거래일자 : ${txDate}</div>
         </div>
         
         <div class="divider-solid"></div>
@@ -547,33 +544,30 @@ export default function WholesalePOS() {
           .logo { max-width: 150px; max-height: 80px; margin: 0 auto 10px; display: block; object-fit: contain; }
           .logo-text-fallback { font-size: 32px; font-weight: 900; margin-bottom: 10px; font-style: italic; color: #000; }
           
-          .info-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-          .info-left { text-align: left; }
-          .store-address { font-size: 13px; margin-bottom: 4px; font-weight: bold; color: #000; }
-          .store-contact { font-size: 11px; line-height: 1.5; color: #000; }
-          .info-right { text-align: center; border: 1.5px solid #ddd; padding: 4px; border-radius: 6px; min-height: 80px; min-width: 80px;}
-          .info-right .qr-title { font-size: 11px; font-weight: 900; margin-bottom: 3px; color: #000; }
-          .info-right .qr-code { width: 75px; height: 75px; display: block; object-fit: contain; }
+          .info-row { display: flex; justify-content: center; align-items: center; margin-bottom: 15px; }
+          .info-center { text-align: center; }
+          .store-address { font-size: 13px; margin-bottom: 4px; font-weight: 900; color: #000; }
+          .store-contact { font-size: 11px; line-height: 1.5; color: #000; font-weight: 500; }
           
           .receipt-title { font-size: 18px; font-weight: 900; margin: 10px 0 5px; letter-spacing: 2px; line-height: 1.3; color: #000; }
           .receipt-type { font-size: 14px; color: #000; font-weight: 900; }
-          .tx-time { font-size: 11px; color: #000; font-weight: bold; margin-top: 5px; }
+          .tx-time { font-size: 11px; color: #000; font-weight: 500; margin-top: 5px; }
           .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
-          .divider-solid { border-bottom: 1px solid #000; margin: 10px 0; }
+          .divider-solid { border-bottom: 1.5px solid #000; margin: 10px 0; }
           .customer-info { font-weight: 900; font-size: 14px; margin: 10px 0; color: #000; }
           .item { margin-bottom: 10px; }
           .item-name { font-weight: 900; font-size: 12px; margin-bottom: 2px; color: #000; }
-          .item-calc { display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px; color: #000;}
+          .item-calc { display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px; color: #000; font-weight: 500; }
           .misong-notice { font-size: 11px; padding-left: 10px; margin-top: 2px; font-weight: 900; color: #000; }
-          .summary-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; font-weight: bold; color: #000; }
-          .text-discount { color: #000; }
+          .summary-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; font-weight: 900; color: #000; }
+          .text-discount { color: #000; font-weight: 500; }
           .total-line { font-size: 17px; font-weight: 900; margin-top: 5px; color: #000; }
           .account-box { border: 2px solid #000; padding: 10px; margin: 15px 0 10px; text-align: center; }
           .account-box .bank-title { font-size: 11px; margin-bottom: 4px; font-weight: 900; color: #000; }
           .account-box .bank-num { font-size: 14px; font-weight: 900; margin-bottom: 4px; letter-spacing: 0.5px; color: #000; }
           .account-box .bank-owner { font-size: 13px; font-weight: 900; color: #000; }
-          .footer { text-align: center; margin-top: 15px; font-size: 11px; line-height: 1.5; font-weight: bold; color: #000; }
-          .print-time { font-size: 10px; color: #666; font-weight: normal; margin-top: 8px; }
+          .footer { text-align: center; margin-top: 15px; font-size: 11px; line-height: 1.5; font-weight: 500; color: #000; }
+          .print-time { font-size: 11px; color: #000; font-weight: 500; margin-top: 8px; }
         </style>
       </head>
       <body>
@@ -3157,16 +3151,29 @@ export default function WholesalePOS() {
   };
 
   const renderMisongView = () => {
+    const activeMisongList = misongList.filter(m => m.shippedQty < m.qty);
+    const activeSampleList = sampleList.filter(s => s.returnedQty < s.qty);
+    
+    const completedMisong = misongList.filter(m => m.shippedQty >= m.qty).map(m => ({ ...m, _type: '미송' }));
+    const completedSample = sampleList.filter(s => s.returnedQty >= s.qty).map(s => ({ ...s, _type: '샘플' }));
+    const completedList = [...completedMisong, ...completedSample].sort((a, b) => b.id.localeCompare(a.id));
+
+    let currentList = [];
+    if (misongTab === 'misong') currentList = activeMisongList;
+    else if (misongTab === 'sample') currentList = activeSampleList;
+    else if (misongTab === 'completed') currentList = completedList;
+
     const isMisong = misongTab === 'misong';
-    const currentList = isMisong ? misongList : sampleList;
+    const isCompleted = misongTab === 'completed';
 
     return (
       <div className="p-6 h-full flex flex-col">
         <div className="flex justify-between items-center mb-6 shrink-0">
           <h2 className="text-2xl font-bold text-gray-800">미송 / 샘플 내역</h2>
           <div className="flex bg-gray-200 p-1 rounded-lg">
-             <button onClick={() => setMisongTab('misong')} className={`px-4 py-1.5 font-bold rounded-md transition-colors ${isMisong ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>미송 내역</button>
-             <button onClick={() => setMisongTab('sample')} className={`px-4 py-1.5 font-bold rounded-md transition-colors ${!isMisong ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>샘플 내역</button>
+             <button onClick={() => setMisongTab('misong')} className={`px-4 py-1.5 font-bold rounded-md transition-colors ${misongTab === 'misong' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>진행중 미송</button>
+             <button onClick={() => setMisongTab('sample')} className={`px-4 py-1.5 font-bold rounded-md transition-colors ${misongTab === 'sample' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>진행중 샘플</button>
+             <button onClick={() => setMisongTab('completed')} className={`px-4 py-1.5 font-bold rounded-md transition-colors ${misongTab === 'completed' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>완료 내역</button>
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 overflow-hidden flex flex-col">
@@ -3177,7 +3184,8 @@ export default function WholesalePOS() {
                   <th className="p-4 text-sm font-bold text-gray-600">접수일자</th>
                   <th className="p-4 text-sm font-bold text-gray-600">거래처명</th>
                   <th className="p-4 text-sm font-bold text-gray-600">상품정보</th>
-                  <th className="p-4 text-sm font-bold text-gray-600">{isMisong ? '전체 / 출고 수량' : '출고 / 회수 수량'}</th>
+                  {isCompleted && <th className="p-4 text-sm font-bold text-gray-600 text-center">구분</th>}
+                  <th className="p-4 text-sm font-bold text-gray-600">{isMisong ? '전체 / 출고 수량' : isCompleted ? '전체 수량' : '출고 / 회수 수량'}</th>
                   <th className="p-4 text-sm font-bold text-gray-600 text-center w-28">상태</th>
                   <th className="p-4 text-sm font-bold text-gray-600 text-center w-32">관리</th>
                 </tr>
@@ -3193,7 +3201,23 @@ export default function WholesalePOS() {
                     <td className="p-4 text-sm font-bold text-gray-800">{item.customerName}</td>
                     <td className="p-4 text-sm text-gray-600">{item.productName}</td>
                     
-                    {isMisong ? (
+                    {isCompleted ? (
+                      <>
+                        <td className="p-4 text-sm text-center">
+                          <span className={`px-2 py-1 rounded text-[11px] font-bold ${item._type === '미송' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>
+                            {item._type}
+                          </span>
+                        </td>
+                        <td className="p-4 text-sm font-medium">
+                          <span className="text-gray-800 font-bold">{item.qty}장</span>
+                        </td>
+                        <td className="p-4 text-sm align-middle text-center">
+                          <span className="bg-gray-100 text-gray-600 px-2 py-1.5 rounded text-xs font-bold border border-gray-200 block w-24 mx-auto">
+                            {item._type === '미송' ? '출고완료' : '회수완료'}
+                          </span>
+                        </td>
+                      </>
+                    ) : isMisong ? (
                       <>
                         <td className="p-4 text-sm font-medium">
                           <div className="flex items-center space-x-2">
@@ -3223,9 +3247,7 @@ export default function WholesalePOS() {
                               <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-[11px] font-bold border border-gray-200 w-24 text-center inline-block">출고예정</span>
                             ) : item.shippedQty < item.qty ? (
                               <span className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-[11px] font-bold border border-blue-200 w-24 text-center inline-block">부분출고</span>
-                            ) : (
-                              <span className="bg-purple-50 text-purple-600 px-2 py-1 rounded text-[11px] font-bold border border-purple-200 w-24 text-center inline-block">출고완료</span>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       </>
@@ -3251,12 +3273,10 @@ export default function WholesalePOS() {
                         <td className="p-4 text-sm align-middle">
                           <div className="flex justify-center">
                             {item.returnedQty === 0 ? (
-                              <span className="bg-gray-100 text-gray-600 px-2 py-1.5 rounded text-xs font-bold border border-gray-200">출고완료</span>
+                              <span className="bg-gray-100 text-gray-600 px-2 py-1.5 rounded text-xs font-bold border border-gray-200 w-24 text-center inline-block">출고완료</span>
                             ) : item.returnedQty < item.qty ? (
-                              <span className="bg-blue-50 text-blue-600 px-2 py-1.5 rounded text-xs font-bold border border-blue-200">부분회수</span>
-                            ) : (
-                              <span className="bg-purple-50 text-purple-600 px-2 py-1.5 rounded text-xs font-bold border border-purple-200">회수완료</span>
-                            )}
+                              <span className="bg-blue-50 text-blue-600 px-2 py-1.5 rounded text-xs font-bold border border-blue-200 w-24 text-center inline-block">부분회수</span>
+                            ) : null}
                           </div>
                         </td>
                       </>
@@ -3264,24 +3284,26 @@ export default function WholesalePOS() {
                     
                     <td className="p-4 text-sm align-middle">
                       <div className="flex space-x-2 justify-center">
-                        <button 
-                          onClick={() => handleSaveItemStatus(item, isMisong)} 
-                          disabled={isMisong ? item.shippedQty === item.savedShippedQty : item.returnedQty === item.savedReturnedQty} 
-                          className={`px-3 py-1.5 rounded text-xs font-bold border transition-colors ${
-                            (isMisong ? item.shippedQty === item.savedShippedQty : item.returnedQty === item.savedReturnedQty) 
-                              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' 
-                              : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-600 shadow-sm'
-                          }`}
-                        >
-                          저장
-                        </button>
-                        <button onClick={() => handleDeleteItem(item, isMisong)} className="text-red-500 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-50 border border-red-200 transition-colors shadow-sm">삭제</button>
+                        {!isCompleted && (
+                          <button 
+                            onClick={() => handleSaveItemStatus(item, isMisong)} 
+                            disabled={isMisong ? item.shippedQty === item.savedShippedQty : item.returnedQty === item.savedReturnedQty} 
+                            className={`px-3 py-1.5 rounded text-xs font-bold border transition-colors ${
+                              (isMisong ? item.shippedQty === item.savedShippedQty : item.returnedQty === item.savedReturnedQty) 
+                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' 
+                                : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-600 shadow-sm'
+                            }`}
+                          >
+                            저장
+                          </button>
+                        )}
+                        <button onClick={() => handleDeleteItem(item, isCompleted ? item._type === '미송' : isMisong)} className="text-red-500 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-50 border border-red-200 transition-colors shadow-sm">삭제</button>
                       </div>
                     </td>
                   </tr>
                 );
                 })}
-                {currentList.length === 0 && (<tr><td colSpan="6" className="p-8 text-center text-gray-500">내역이 없습니다.</td></tr>)}
+                {currentList.length === 0 && (<tr><td colSpan={isCompleted ? "7" : "6"} className="p-8 text-center text-gray-500">내역이 없습니다.</td></tr>)}
               </tbody>
             </table>
           </div>
