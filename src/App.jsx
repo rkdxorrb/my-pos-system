@@ -52,16 +52,14 @@ const getTodayStr = () => {
   return `${y}-${m}-${d}`;
 };
 
-// 💡 초성 검색을 위한 정규식(Regex) 생성 헬퍼 함수 (띄어쓰기 무시 기능 추가)
+// 💡 초성 검색을 위한 정규식(Regex) 생성 헬퍼 함수
 const makeChosungRegex = (searchWord) => {
   if (!searchWord) return new RegExp('');
   const CHOSUNG = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
-  const HANGUL_START = 44032; // '가'의 유니코드
+  const HANGUL_START = 44032; 
   
-  // 검색어에서 띄어쓰기 제거
   const cleanSearchWord = searchWord.replace(/\s+/g, '');
   
-  // 띄어쓰기를 무시하기 위해 글자 매칭 정규식 사이에 \s*(공백 0개 이상 허용) 삽입
   const regexStr = cleanSearchWord.split('').map(char => {
     const idx = CHOSUNG.indexOf(char);
     if (idx !== -1) {
@@ -185,7 +183,7 @@ export default function WholesalePOS() {
   const [restockSearchDate, setRestockSearchDate] = useState(getTodayStr());
   const [restockSearchMonth, setRestockSearchMonth] = useState(getTodayStr().substring(0, 7));
   const [restockSearchQuery, setRestockSearchQuery] = useState('');
-  const [restockViewType, setRestockViewType] = useState('daily'); // 'daily', 'calendar'
+  const [restockViewType, setRestockViewType] = useState('daily'); 
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerListTab, setCustomerListTab] = useState('전체');
@@ -197,7 +195,7 @@ export default function WholesalePOS() {
   const today = getTodayStr();
   const [reportDate, setReportDate] = useState(today);
   const [reportMonth, setReportMonth] = useState(today.substring(0, 7));
-  const [salesReportTab, setSalesReportTab] = useState('daily'); // 'daily', 'monthly_list', 'monthly_calendar'
+  const [salesReportTab, setSalesReportTab] = useState('daily'); 
   const [salesReportSort, setSalesReportSort] = useState({ key: 'date', direction: 'desc' });
   
   const [saleDetailModal, setSaleDetailModal] = useState(null);
@@ -208,7 +206,6 @@ export default function WholesalePOS() {
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
   const customerSearchRef = useRef(null);
 
-  // 💡 메뉴 이동 시 모든 검색어 및 뷰 상태(오늘 날짜) 초기화 적용
   const navigateTo = (menuId, isMainNav = false) => {
     setSalesSearchQuery('');
     setInventorySearchQuery('');
@@ -362,7 +359,6 @@ export default function WholesalePOS() {
         return; 
       }
 
-      // 💡 [추가] 상세 내역 팝업 열려 있을 때 ESC키로 닫기
       if (saleDetailModal && e.key === 'Escape') {
         e.preventDefault();
         setSaleDetailModal(null);
@@ -400,7 +396,6 @@ export default function WholesalePOS() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
-  // 💡 [수정] 영수증 출력 함수 (거래일시와 출력일시 분리 및 QR 오류 처리 개선)
   const printReceipt = (receiptData) => {
     if (receiptPrintCount === 0) return;
 
@@ -410,7 +405,6 @@ export default function WholesalePOS() {
 
     const now = new Date();
     const printTime = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
-    // 💡 거래일시(시간 포함) 대신 거래일자만 표시
     const txDate = receiptData.date || now.toLocaleDateString();
 
     let itemsHtml = '';
@@ -467,7 +461,6 @@ export default function WholesalePOS() {
       `;
     }
 
-    // 💡 QR onerror 텍스트 대체를 보다 깔끔하게 적용
     const generateReceiptBody = (receiptTypeLabel) => `
       <div class="receipt">
         <div class="header">
@@ -878,7 +871,6 @@ export default function WholesalePOS() {
     );
   }
 
-  // 💡 달력 공통 렌더링 컴포넌트
   const renderCalendar = (monthStr, dataMap, onDayClick) => {
     const [year, month] = monthStr.split('-').map(Number);
     const firstDay = new Date(year, month - 1, 1).getDay();
@@ -1087,7 +1079,6 @@ export default function WholesalePOS() {
                 {recentSales.map(sale => (
                   <tr key={sale.id} className="border-b hover:bg-gray-50">
                     <td className="p-3 text-sm">{sale.time}</td>
-                    {/* 💡 메인화면에서도 거래처 링크 연결 */}
                     <td 
                       className="p-3 text-sm font-bold cursor-pointer hover:text-blue-600 hover:underline"
                       onClick={() => {
@@ -1679,8 +1670,8 @@ export default function WholesalePOS() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredInventory.map(p => (
-                  // 💡 품절 상태 시 배경색 및 투명도 변경
-                  <tr key={p.id} className={`hover:bg-blue-50/50 transition-colors ${p.stock === 0 ? 'bg-gray-50 opacity-70' : ''}`}>
+                  // 💡 2번 수정: 품절 상태 시 빨간색 배경을 주어 음영을 더 명확하게 변경
+                  <tr key={p.id} className={`transition-colors ${p.stock === 0 ? 'bg-red-50 opacity-90' : 'hover:bg-blue-50/50'}`}>
                     <td className="p-4 text-sm font-medium text-gray-900">{p.id}</td>
                     <td className="p-4">
                       <div className="flex items-center space-x-3">
@@ -2079,7 +2070,8 @@ export default function WholesalePOS() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col md:flex-row gap-8 overflow-y-auto">
           
-          <div className="w-full md:w-1/3 aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0">
+          {/* 💡 1번 수정: 이미지 컨테이너가 찌그러지지 않고 항상 3:4 비율로 나타나도록 max-w 및 self-start 추가 */}
+          <div className="w-full md:w-1/3 max-w-[320px] aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0 self-start">
             {productDetailEditMode ? (
               <>
                 {productEditForm.image ? (
@@ -2942,7 +2934,7 @@ export default function WholesalePOS() {
                         <tr 
                           key={sale.id} 
                           className="hover:bg-blue-50 cursor-pointer transition-colors"
-                          onClick={() => setSaleDetailModal(sale)} // 💡 클릭 시 상세 모달 오픈
+                          onClick={() => setSaleDetailModal(sale)} 
                         >
                           <td className="p-3 text-gray-600">{sale.date} {sale.time}</td>
                           <td className="p-3 text-center">
@@ -3122,6 +3114,26 @@ export default function WholesalePOS() {
     }
   };
 
+  // 💡 3번 수정: 미송/샘플 완료 처리를 진행할 때 한번 더 확인 창 팝업
+  const handleSaveItemStatusClick = (item, isMisong) => {
+    if (isMisong) {
+      if (item.shippedQty === item.qty && item.savedShippedQty !== item.qty) {
+        showConfirm("전체 수량이 출고되어 '출고 완료' 처리됩니다.\n저장 후에는 완료 내역으로 이동되며, 더 이상 수정할 수 없습니다.\n계속하시겠습니까?", () => {
+          handleSaveItemStatus(item, isMisong);
+        });
+        return;
+      }
+    } else {
+      if (item.returnedQty === item.qty && item.savedReturnedQty !== item.qty) {
+        showConfirm("전체 수량이 회수되어 '회수 완료' 처리됩니다.\n저장 후에는 완료 내역으로 이동되며, 더 이상 수정할 수 없습니다.\n계속하시겠습니까?", () => {
+          handleSaveItemStatus(item, isMisong);
+        });
+        return;
+      }
+    }
+    handleSaveItemStatus(item, isMisong);
+  };
+
   const handleDeleteItem = (item, isMisong) => {
     showConfirm("정말 삭제하시겠습니까? (반영된 재고는 원래대로 복구됩니다)", () => {
       let stockDelta = 0;
@@ -3286,7 +3298,8 @@ export default function WholesalePOS() {
                       <div className="flex space-x-2 justify-center">
                         {!isCompleted && (
                           <button 
-                            onClick={() => handleSaveItemStatus(item, isMisong)} 
+                            // 💡 3번 수정: handleSaveItemStatusClick 로 연결하여 조건에 따라 confirm 표시 
+                            onClick={() => handleSaveItemStatusClick(item, isMisong)} 
                             disabled={isMisong ? item.shippedQty === item.savedShippedQty : item.returnedQty === item.savedReturnedQty} 
                             className={`px-3 py-1.5 rounded text-xs font-bold border transition-colors ${
                               (isMisong ? item.shippedQty === item.savedShippedQty : item.returnedQty === item.savedReturnedQty) 
@@ -3390,7 +3403,6 @@ export default function WholesalePOS() {
         </main>
       </div>
 
-      {/* 💡 상세 구매 내역 모달을 최상위로 분리하여 어디서든 열릴 수 있도록 하고, 영수증 재출력 버튼 추가 */}
       {saleDetailModal && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[90] px-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col transform transition-all">
@@ -3454,7 +3466,6 @@ export default function WholesalePOS() {
             </div>
             
             <div className="mt-5 flex justify-end items-center">
-              {/* 💡 영수증 재출력 버튼 추가 */}
               <button 
                 onClick={() => {
                   const discount = Math.abs(saleDetailModal.total) - (saleDetailModal.actualPayment + saleDetailModal.appliedBalance);
