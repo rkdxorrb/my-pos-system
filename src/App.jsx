@@ -990,7 +990,7 @@ export default function WholesalePOS() {
     };
 
     return (
-      <div className="p-6">
+      <div className="p-6 h-full overflow-y-auto">
         <h2 className="text-2xl font-bold text-gray-800 mb-6">환경 설정</h2>
         
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mb-6">
