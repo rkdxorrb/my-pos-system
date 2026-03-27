@@ -2267,33 +2267,33 @@ export default function WholesalePOS() {
                   </div>
                 </div>
 
-                <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col sm:flex-row items-start justify-between gap-4">
+                {/* 💡 입고 일자 지정 폼 UI 레이아웃 변경 (가로 폭 문제 해결) */}
+                <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col gap-4">
                   <div>
                     <p className="text-sm font-bold text-gray-800">추가 사입 (재입고)</p>
                     <p className="text-xs text-gray-500">매입처, 입고일, 수량을 입력하여 입고내역을 갱신하세요.</p>
                   </div>
                   
-                  {/* 💡 입고 일자 지정 폼 컨트롤 추가 */}
-                  <div className="flex flex-col sm:flex-row items-end sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
+                  <div className="flex flex-wrap items-center gap-2">
                     <input 
                       type="date" 
                       value={productRestockDate} 
                       onChange={(e) => setProductRestockDate(e.target.value)}
-                      className="p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white font-medium"
+                      className="p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white font-medium flex-1 min-w-[130px]"
                       title="입고 일자 선택"
                     />
                     <select
                       value={productRestockSupplierId} onChange={(e) => setProductRestockSupplierId(e.target.value)}
-                      className="w-32 p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+                      className="p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white flex-1 min-w-[140px]"
                     >
                       <option value="">-- 매입처 선택 --</option>
                       {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     <input
                       type="number" value={productRestockQty} onChange={(e) => setProductRestockQty(e.target.value)}
-                      placeholder="수량" className="w-20 p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-right"
+                      placeholder="수량" className="w-24 p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-right"
                     />
-                    <button onClick={handleRestock} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 whitespace-nowrap shadow-sm">입고 반영</button>
+                    <button onClick={handleRestock} className="px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 whitespace-nowrap shadow-sm">입고 반영</button>
                   </div>
                 </div>
               </>
@@ -3225,7 +3225,7 @@ export default function WholesalePOS() {
   const handleSaveItemStatusClick = (item, isMisong) => {
     if (isMisong) {
       if (item.shippedQty === item.qty && item.savedShippedQty !== item.qty) {
-        showConfirm("전체 수량이 출고되어 '출고 완료' 처리됩니다.\n저장 후에는 완료 내역으로 이동되며, 더 이상 수정할 수 없습니다.\n계속하시겠습니까?", () => {
+        showConfirm("전체 수량이 출고되어 '출고 완료' 처리됩니다.\n저장 후에는 완료 내역으로 이동되며, 더 이상 수정할 수 일없습니다.\n계속하시겠습니까?", () => {
           handleSaveItemStatus(item, isMisong);
         });
         return;
