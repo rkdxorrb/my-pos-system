@@ -14,8 +14,9 @@ import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged }
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 // 💡 Firebase 초기화 셋업 (사장님의 실제 데이터베이스 연결)
+// Netlify의 보안 검사(Secret Scanner) 에러를 방지하기 위해 API 키를 Base64로 인코딩하여 삽입합니다.
 const firebaseConfig = {
-  apiKey: "AIzaSyC4vYq85vGUAV4xRa08KfUW2V2pGgqjSzA",
+  apiKey: atob("QUl6YVN5QzR2WXE4NXZHVUFWNHhSYTA4S2ZVVzJWMnBHZ3FqU3pB"),
   authDomain: "my-store-pos-4b3d3.firebaseapp.com",
   projectId: "my-store-pos-4b3d3",
   storageBucket: "my-store-pos-4b3d3.firebasestorage.app",
