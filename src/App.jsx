@@ -5,7 +5,7 @@ import {
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, Tag, Upload,
   ChevronUp, ChevronDown, Inbox, Printer, X, CalendarDays, List,
-  Wallet, Megaphone, Bell
+  Wallet, Megaphone, Bell, ArrowUp // 💡 ArrowUp 아이콘 추가
 } from 'lucide-react';
 
 // 💡 Firebase 클라우드 연동 모듈 임포트
@@ -210,7 +210,6 @@ export default function WholesalePOS() {
   const [misongTab, setMisongTab] = useState('misong');
   const [transactionDate, setTransactionDate] = useState(today);
 
-  // 💡 [수정] 자식 렌더링 함수에 있던 상태(State)들을 최상단으로 이동 (React Hook 규칙 위반 방지)
   const [cashForm, setCashForm] = useState({ type: '입금', amount: '', memo: '' });
   const [noticeForm, setNoticeForm] = useState({ title: '', content: '' });
   const [isWritingNotice, setIsWritingNotice] = useState(false);
@@ -218,6 +217,35 @@ export default function WholesalePOS() {
 
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
   const customerSearchRef = useRef(null);
+
+  // 💡 스크롤 유지 및 Top 버튼 관리를 위한 State와 Ref
+  const [showTopButton, setShowTopButton] = useState(false);
+  const inventoryScrollRef = useRef(0); // 상품목록 스크롤 위치 저장
+  const customersScrollRef = useRef(0); // 업체목록 스크롤 위치 저장
+  const mainScrollRef = useRef(null); // 공통 스크롤 컨테이너 참조
+
+  // 💡 스크롤 이벤트 핸들러
+  const handleContainerScroll = (e) => {
+    // 300px 이상 스크롤 시 Top 버튼 표시
+    if (e.target.scrollTop > 300) {
+      setShowTopButton(true);
+    } else {
+      setShowTopButton(false);
+    }
+    // 각 목록 화면일 때 스크롤 위치 기억
+    if (activeMenu === 'inventory') {
+      inventoryScrollRef.current = e.target.scrollTop;
+    } else if (activeMenu === 'customers') {
+      customersScrollRef.current = e.target.scrollTop;
+    }
+  };
+
+  // 💡 Top 버튼 클릭 시 위로 올라가는 함수
+  const scrollToTop = () => {
+    if (mainScrollRef.current) {
+      mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const navigateTo = (menuId, isMainNav = false) => {
     setSalesSearchQuery('');
@@ -231,12 +259,41 @@ export default function WholesalePOS() {
     setRestockSearchMonth(getTodayStr().substring(0, 7));
     setIsCustomerDropdownOpen(false);
 
+    // 메뉴 이동 시 Top 버튼 강제 숨김
+    setShowTopButton(false);
+
+    // 💡 왼쪽 메인 메뉴를 통해 이동할 때는 스크롤 기록을 초기화하여 항상 최상단부터 보이게 처리
+    if (isMainNav) {
+      inventoryScrollRef.current = 0;
+      customersScrollRef.current = 0;
+    }
+
     setMenuHistory(prev => {
       if (isMainNav) return [menuId];
       if (prev[prev.length - 1] === menuId) return prev;
       return [...prev, menuId];
     });
   };
+
+  // 💡 메뉴가 바뀔 때 스크롤 복원 및 최상단 이동 로직
+  useEffect(() => {
+    // DOM이 그려진 후 실행되도록 약간의 지연(setTimeout 0)을 사용
+    const timer = setTimeout(() => {
+      if (mainScrollRef.current) {
+        if (activeMenu === 'inventory') {
+          // 상품 목록으로 돌아왔을 때는 기억된 스크롤 위치로 이동
+          mainScrollRef.current.scrollTop = inventoryScrollRef.current;
+        } else if (activeMenu === 'customers') {
+          // 업체 목록으로 돌아왔을 때도 기억된 스크롤 위치로 이동
+          mainScrollRef.current.scrollTop = customersScrollRef.current;
+        } else {
+          // 다른 메뉴로 이동할 때는 스크롤을 맨 위로 초기화
+          mainScrollRef.current.scrollTop = 0;
+        }
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activeMenu]);
 
   const goBack = () => {
     setMenuHistory(prev => {
@@ -283,7 +340,6 @@ export default function WholesalePOS() {
     deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, id)).catch(console.error);
   };
 
-  // 🔥 누적 거래액 계산용 메모이제이션 훅 (dailySales가 바뀔 때만 재계산)
   const customerTotalSales = useMemo(() => {
     const totals = {};
     dailySales.forEach(sale => {
@@ -298,7 +354,6 @@ export default function WholesalePOS() {
     return totals;
   }, [dailySales]);
 
-  // 시재 계산용
   const currentCashBalance = useMemo(() => {
     return cashLogs.reduce((acc, log) => {
       return log.type === '입금' ? acc + log.amount : acc - log.amount;
@@ -990,7 +1045,7 @@ export default function WholesalePOS() {
     };
 
     return (
-      <div className="p-6 h-full overflow-y-auto">
+      <div className="p-6 h-full overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
         <h2 className="text-2xl font-bold text-gray-800 mb-6">환경 설정</h2>
         
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mb-6">
@@ -1082,7 +1137,7 @@ export default function WholesalePOS() {
     const recentSales = dailySales.slice(0, 5);
 
     return (
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-800">금일 영업 현황 (메인화면)</h2>
           <span className="text-sm font-medium text-gray-500 bg-white px-3 py-1 rounded-full shadow-sm border border-gray-100">오늘: {displayDate}</span>
@@ -1576,7 +1631,8 @@ export default function WholesalePOS() {
           </div>
         </div>
 
-        <div className="w-full md:w-2/3 p-6 overflow-y-auto z-0">
+        {/* 💡 onScroll과 ref 적용 */}
+        <div className="w-full md:w-2/3 p-6 overflow-y-auto z-0" onScroll={handleContainerScroll} ref={mainScrollRef}>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold text-gray-800">상품 목록</h2>
             <div className="relative">
@@ -1696,7 +1752,8 @@ export default function WholesalePOS() {
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 overflow-hidden flex flex-col">
-          <div className="flex-1 overflow-y-auto">
+          {/* 💡 onScroll과 ref 적용 */}
+          <div className="flex-1 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
             <table className="w-full text-left relative">
               <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                 <tr>
@@ -1737,7 +1794,6 @@ export default function WholesalePOS() {
                     <td className="p-4 text-sm text-gray-600">{p.color}</td>
                     <td className="p-4 text-sm text-gray-600">{p.size}</td>
                     
-                    {/* 💡 세일 처리 품목의 경우 세일가격도 함께 표시되도록 수정 */}
                     <td className="p-4 text-sm font-medium">
                       {p.salePrice && p.salePrice < p.price ? (
                         <div className="flex flex-col">
@@ -1856,7 +1912,7 @@ export default function WholesalePOS() {
         
         const historyItem = {
           id: `RS_${Date.now()}`,
-          date: addProductForm.date || getTodayStr(), // 💡 지정된 날짜로 입고 기록 저장
+          date: addProductForm.date || getTodayStr(), 
           time: timeStr,
           productId: newId,
           productName: addProductForm.name,
@@ -1893,7 +1949,7 @@ export default function WholesalePOS() {
     };
 
     return (
-      <div className="px-6 pb-6 pt-2">
+      <div className="px-6 pb-6 pt-2 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
         <div className="flex items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">신규 상품 등록</h2>
         </div>
@@ -1974,7 +2030,6 @@ export default function WholesalePOS() {
                 <input type="number" name="stock" value={addProductForm.stock} onChange={handleAddProductChange} placeholder="예) 50" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               </div>
 
-              {/* 💡 신규 상품 등록 시 초기 입고 일자 지정 가능하도록 추가 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">입고 일자 (지정)</label>
                 <input type="date" name="date" value={addProductForm.date || getTodayStr()} onChange={handleAddProductChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium" />
@@ -2024,7 +2079,7 @@ export default function WholesalePOS() {
 
         const historyItem = {
           id: `RS_${Date.now()}`,
-          date: productRestockDate, // 💡 지정된 입고 날짜 반영
+          date: productRestockDate, 
           time: timeStr,
           productId: selectedProduct.id,
           productName: selectedProduct.name,
@@ -2127,7 +2182,8 @@ export default function WholesalePOS() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col md:flex-row gap-8 overflow-y-auto">
+        {/* 💡 onScroll과 ref 적용 */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col md:flex-row gap-8 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
           
           <div className="w-full md:w-1/3 max-w-[320px] aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0 self-start">
             {productDetailEditMode ? (
@@ -2267,7 +2323,6 @@ export default function WholesalePOS() {
                   </div>
                 </div>
 
-                {/* 💡 입고 일자 지정 폼 UI 레이아웃 변경 (가로 폭 문제 해결) */}
                 <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col gap-4">
                   <div>
                     <p className="text-sm font-bold text-gray-800">추가 사입 (재입고)</p>
@@ -2389,7 +2444,8 @@ export default function WholesalePOS() {
                   </div>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              {/* 💡 onScroll과 ref 적용 */}
+              <div className="flex-1 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
                 <table className="w-full text-left relative">
                   <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                     <tr>
@@ -2443,7 +2499,6 @@ export default function WholesalePOS() {
             </div>
           );
         })() : (() => {
-          // 달력용 데이터 집계
           const mapData = {};
           restockHistory.filter(h => h.date.startsWith(restockSearchMonth)).forEach(h => {
             if (!mapData[h.date]) mapData[h.date] = { qty: 0 };
@@ -2459,7 +2514,7 @@ export default function WholesalePOS() {
           });
 
           return (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
                <div className="flex items-center space-x-3 mb-4 bg-white p-3 rounded-lg shadow-sm border border-gray-100 w-max">
                   <h3 className="font-bold text-gray-800">월 선택</h3>
                   <input 
@@ -2555,7 +2610,8 @@ export default function WholesalePOS() {
                   </div>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              {/* 💡 onScroll과 ref 적용 */}
+              <div className="flex-1 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
                 <table className="w-full text-left relative">
                   <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                     <tr>
@@ -2666,7 +2722,8 @@ export default function WholesalePOS() {
                   </div>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              {/* 💡 onScroll과 ref 적용 */}
+              <div className="flex-1 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
                 <table className="w-full text-left relative">
                   <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                     <tr>
@@ -2735,8 +2792,6 @@ export default function WholesalePOS() {
         })() : (() => {
           // 달력 뷰 
           const currentMonthData = monthlySales.filter(m => m.date.startsWith(reportMonth));
-          
-          // 💡 달력 상단 표시용 월 매출 총합 계산
           const totalMonthlySales = currentMonthData.reduce((sum, item) => sum + item.sales, 0);
           const totalMonthlyReturns = currentMonthData.reduce((sum, item) => sum + item.returns, 0);
           const totalMonthlyNetSales = currentMonthData.reduce((sum, item) => sum + item.netSales, 0);
@@ -2755,7 +2810,7 @@ export default function WholesalePOS() {
           });
 
           return (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col h-full overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
                <div className="flex flex-wrap items-center gap-4 mb-4">
                  <div className="flex items-center space-x-3 bg-white p-3 rounded-lg shadow-sm border border-gray-100 w-max">
                     <h3 className="font-bold text-gray-800">월 선택</h3>
@@ -2776,7 +2831,6 @@ export default function WholesalePOS() {
                     </button>
                  </div>
 
-                 {/* 💡 달력 상단에 표시되는 월별 매출 합계 요약 UI */}
                  <div className="flex items-center bg-white p-3 rounded-lg shadow-sm border border-gray-100 gap-6">
                     <div className="flex flex-col">
                       <span className="text-xs text-gray-500 font-bold mb-0.5">총 판매액</span>
@@ -2848,7 +2902,8 @@ export default function WholesalePOS() {
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 overflow-hidden flex flex-col">
-          <div className="flex-1 overflow-y-auto">
+          {/* 💡 onScroll과 ref 적용 */}
+          <div className="flex-1 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
             <table className="w-full text-left relative">
               <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                 <tr>
@@ -2856,7 +2911,6 @@ export default function WholesalePOS() {
                   <th className="p-4 text-sm font-bold text-gray-600 text-center">구분</th>
                   <th className="p-4 text-sm font-bold text-gray-600">업체명 (상호)</th>
                   <th className="p-4 text-sm font-bold text-gray-600">연락처</th>
-                  {/* 💡 누적 거래액 컬럼 추가 */}
                   <th className="p-4 text-sm font-bold text-gray-600">누적 거래액</th>
                   <th className="p-4 text-sm font-bold text-gray-600">보유 잔고 (예치금)</th>
                   <th className="p-4 text-sm font-bold text-gray-600 text-center">관리</th>
@@ -2879,7 +2933,6 @@ export default function WholesalePOS() {
                     </td>
                     <td className="p-4 text-sm text-gray-600">{c.phone}</td>
                     
-                    {/* 💡 계산된 누적 거래액 바인딩 */}
                     <td className="p-4 text-sm font-bold text-gray-600">
                       ₩ {(customerTotalSales[c.name] || 0).toLocaleString()}
                     </td>
@@ -2918,7 +2971,6 @@ export default function WholesalePOS() {
 
     const displayType = (!selectedCustomerDetail.type || selectedCustomerDetail.type === '판매처' || selectedCustomerDetail.type === '매출처') ? '판매처' : '매입처';
     const customerSales = dailySales.filter(sale => sale.customerName === selectedCustomerDetail.name);
-    // 💡 상세 화면에서도 누적 거래액 표시를 위해 변수 선언
     const totalAccumulated = customerTotalSales[selectedCustomerDetail.name] || 0;
 
     return (
@@ -2944,7 +2996,7 @@ export default function WholesalePOS() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col overflow-hidden">
           {customerDetailEditMode ? (
-            <div className="space-y-6 overflow-y-auto pr-2">
+            <div className="space-y-6 overflow-y-auto pr-2" onScroll={handleContainerScroll} ref={mainScrollRef}>
               <div className="flex items-center space-x-6 pb-4 border-b border-gray-100">
                 <span className="text-sm font-bold text-gray-700">업체 구분</span>
                 <label className="flex items-center space-x-2 cursor-pointer">
@@ -2993,7 +3045,6 @@ export default function WholesalePOS() {
                     <h1 className="text-3xl font-bold text-gray-900">{selectedCustomerDetail.name}</h1>
                   </div>
                   <div className="text-right flex space-x-8">
-                    {/* 💡 상단에 누적 거래액 함께 표시 */}
                     <div>
                       <p className="text-sm text-gray-500 mb-1">누적 순거래액</p>
                       <p className="text-xl font-bold text-gray-700">₩ {totalAccumulated.toLocaleString()}</p>
@@ -3021,12 +3072,12 @@ export default function WholesalePOS() {
                 </div>
               </div>
 
-              {/* 거래처 상세 화면 하단 거래 내역 */}
+              {/* 💡 onScroll과 ref 적용 */}
               <div className="pt-2 border-t border-gray-100 flex-1 flex flex-col min-h-[250px] overflow-hidden">
                 <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center shrink-0">
                   <FileText className="mr-2 text-gray-500" size={20} /> 과거 거래 내역 모아보기
                 </h3>
-                <div className="border border-gray-200 rounded-lg flex-1 overflow-y-auto relative">
+                <div className="border border-gray-200 rounded-lg flex-1 overflow-y-auto relative" onScroll={handleContainerScroll} ref={mainScrollRef}>
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                       <tr>
@@ -3117,7 +3168,7 @@ export default function WholesalePOS() {
     };
 
     return (
-      <div className="px-6 pb-6 pt-2">
+      <div className="px-6 pb-6 pt-2 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
         <div className="flex items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-800">신규 거래처 등록</h2>
         </div>
@@ -3296,7 +3347,8 @@ export default function WholesalePOS() {
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 overflow-hidden flex flex-col">
-          <div className="flex-1 overflow-y-auto">
+          {/* 💡 onScroll과 ref 적용 */}
+          <div className="flex-1 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
             <table className="w-full text-left relative">
               <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                 <tr>
@@ -3431,9 +3483,7 @@ export default function WholesalePOS() {
     );
   };
 
-  // 💡 신규 기능: 시재 관리 (현금 입출금)
   const renderCashView = () => {
-    // [수정] 위로 끌어올린 상태들 대신 전달된 상태값을 사용합니다.
     const handleCashSubmit = (e) => {
       e.preventDefault();
       if (!cashForm.amount || isNaN(Number(cashForm.amount)) || Number(cashForm.amount) <= 0) {
@@ -3478,7 +3528,6 @@ export default function WholesalePOS() {
         </div>
 
         <div className="flex flex-col md:flex-row gap-6 flex-1 overflow-hidden">
-          {/* 입출금 등록 폼 */}
           <div className="w-full md:w-1/3 shrink-0">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <h3 className="font-bold text-gray-800 mb-4 border-b pb-2">시재 입/출금 등록</h3>
@@ -3508,12 +3557,12 @@ export default function WholesalePOS() {
             </div>
           </div>
 
-          {/* 내역 테이블 */}
           <div className="w-full md:w-2/3 bg-white rounded-xl shadow-sm border border-gray-100 flex-1 flex flex-col overflow-hidden">
             <div className="p-4 border-b bg-gray-50 shrink-0">
                <h3 className="font-bold text-gray-800">최근 시재 내역</h3>
             </div>
-            <div className="flex-1 overflow-y-auto">
+            {/* 💡 onScroll과 ref 적용 */}
+            <div className="flex-1 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
               <table className="w-full text-left relative">
                 <thead className="bg-white border-b sticky top-0 z-10 shadow-sm">
                   <tr>
@@ -3554,10 +3603,7 @@ export default function WholesalePOS() {
     );
   };
 
-  // 💡 신규 기능: 공지사항
   const renderNoticeView = () => {
-    // [수정] 위로 끌어올린 상태들 대신 전달된 상태값을 사용합니다.
-
     const handleNoticeSubmit = (e) => {
       e.preventDefault();
       if (!noticeForm.title) return showAlert('제목을 입력해주세요.');
@@ -3614,7 +3660,8 @@ export default function WholesalePOS() {
         ) : null}
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 overflow-hidden flex flex-col max-w-5xl">
-          <div className="flex-1 overflow-y-auto p-2">
+          {/* 💡 onScroll과 ref 적용 */}
+          <div className="flex-1 overflow-y-auto p-2" onScroll={handleContainerScroll} ref={mainScrollRef}>
             {notices.length === 0 ? (
               <div className="p-8 text-center text-gray-500">등록된 공지사항이 없습니다.</div>
             ) : (
@@ -3667,8 +3714,8 @@ export default function WholesalePOS() {
       case 'customerDetail': return renderCustomerDetailView();
       case 'addCustomer': return renderAddCustomerView();
       case 'misong': return renderMisongView();
-      case 'cash': return renderCashView(); // 💡 시재관리
-      case 'notice': return renderNoticeView(); // 💡 공지사항
+      case 'cash': return renderCashView(); 
+      case 'notice': return renderNoticeView(); 
       case 'settings': return renderSettingsView();
       default: return renderDashboardView();
     }
@@ -3722,7 +3769,8 @@ export default function WholesalePOS() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-hidden bg-gray-50 flex flex-col relative z-0">
+        {/* 💡 핵심 수정: key={activeMenu} 를 추가하여 메뉴 변경 시 DOM 재사용을 막고 스크롤 꼬임 완벽 해결 */}
+        <main key={activeMenu} className="flex-1 overflow-hidden bg-gray-50 flex flex-col relative z-0">
           {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice'].includes(activeMenu) && (
             <div className="px-6 pt-6 pb-2 shrink-0">
               <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
@@ -3731,6 +3779,17 @@ export default function WholesalePOS() {
             </div>
           )}
           {renderContent()}
+
+          {/* 💡 Top 버튼 구현 부분 */}
+          {showTopButton && (
+            <button
+              onClick={scrollToTop}
+              className="absolute bottom-8 right-8 bg-gray-900 text-white p-3.5 rounded-full shadow-xl hover:bg-gray-800 hover:-translate-y-1 transition-all z-50 flex items-center justify-center opacity-90 hover:opacity-100"
+              title="맨 위로 가기"
+            >
+              <ArrowUp size={24} />
+            </button>
+          )}
         </main>
       </div>
 
