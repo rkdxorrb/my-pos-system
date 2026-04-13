@@ -190,7 +190,7 @@ export default function WholesalePOS() {
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerListTab, setCustomerListTab] = useState('전체');
-  const [customerSortType, setCustomerSortType] = useState('code'); // 정렬기준
+  const [customerSortType, setCustomerSortType] = useState('code'); 
   
   const [customerDetailEditMode, setCustomerDetailEditMode] = useState(false);
   const [customerEditForm, setCustomerEditForm] = useState({});
@@ -218,7 +218,7 @@ export default function WholesalePOS() {
   const [showTopButton, setShowTopButton] = useState(false);
   const inventoryScrollRef = useRef(0);
   const customersScrollRef = useRef(0); 
-  const salesScrollRef = useRef(0); // 판매화면 스크롤 저장
+  const salesScrollRef = useRef(0);
   const mainScrollRef = useRef(null);
 
   const [cart, setCart] = useState([]);
@@ -238,7 +238,6 @@ export default function WholesalePOS() {
     if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 💡 메인 메뉴 클릭 시에만 검색/뷰 상태를 초기화. 뒤로가기 시에는 상태 유지.
   const navigateTo = (menuId, isMainNav = false) => {
     if (isMainNav) {
       setSalesSearchQuery('');
@@ -266,6 +265,7 @@ export default function WholesalePOS() {
     });
   };
 
+  // 스크롤 복원 (타이머 딜레이를 주어 렌더링 후 정확히 복구되게 함)
   useEffect(() => {
     const timer = setTimeout(() => {
       if (mainScrollRef.current) {
@@ -279,9 +279,9 @@ export default function WholesalePOS() {
           mainScrollRef.current.scrollTop = 0;
         }
       }
-    }, 0);
+    }, 50);
     return () => clearTimeout(timer);
-  }, [activeMenu, salesCategoryTab]); // 변경 시 스크롤이 유지되도록
+  }, [activeMenu, salesCategoryTab, customerListTab]); 
 
   const goBack = () => {
     setMenuHistory(prev => {
@@ -316,6 +316,43 @@ export default function WholesalePOS() {
   const showAlert = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'alert', message, onConfirm });
   const showConfirm = (message, onConfirm = null) => setModalConfig({ isOpen: true, type: 'confirm', message, onConfirm });
   const closeModal = () => setModalConfig({ isOpen: false, type: 'alert', message: '', onConfirm: null });
+
+  const renderModal = () => {
+    if (!modalConfig.isOpen) return null;
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[100]">
+        <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 transform transition-all">
+          <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center">
+            {modalConfig.type === 'confirm' ? <AlertCircle className="mr-2 text-blue-500" size={20} /> : <CheckCircle className="mr-2 text-green-500" size={20} />}
+            {modalConfig.type === 'confirm' ? '확인' : '알림'}
+          </h3>
+          <p className="text-gray-600 mb-6 whitespace-pre-wrap text-sm leading-relaxed">
+            {modalConfig.message}
+          </p>
+          <div className="flex justify-end space-x-2">
+            {modalConfig.type === 'confirm' && (
+              <button 
+                onClick={closeModal} 
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition text-sm shadow-sm"
+              >
+                취소
+              </button>
+            )}
+            <button 
+              autoFocus 
+              onClick={() => {
+                if (modalConfig.onConfirm) modalConfig.onConfirm();
+                closeModal();
+              }} 
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition text-sm shadow-sm"
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const saveItem = (colName, item) => {
     if (!db || !fbUser) return;
@@ -660,6 +697,17 @@ export default function WholesalePOS() {
     }, 500);
   };
 
+  const handleToggleEndProduct = (product) => {
+    const isCurrentlyEnded = product.isEnded;
+    const actionText = isCurrentlyEnded ? '판매재개' : '종료';
+    showConfirm(`해당 상품을 [${actionText}] 처리하시겠습니까?\n${!isCurrentlyEnded ? '(종료 시 판매 화면과 재고 알림에서 숨김 처리됩니다.)' : ''}`, () => {
+      const updated = { ...product, isEnded: !isCurrentlyEnded };
+      setProducts(products.map(p => p.id === product.id ? updated : p));
+      saveItem('products', updated);
+      showAlert(`[${product.name}] 상품이 ${actionText} 처리되었습니다.`);
+    });
+  };
+
   const handleDeleteProduct = (id) => {
     showConfirm('해당 상품을 정말 삭제하시겠습니까?\n(삭제 시 관련된 다른 내역에 영향을 줄 수 있습니다)', () => {
       setProducts(products.filter(p => p.id !== id));
@@ -914,39 +962,7 @@ export default function WholesalePOS() {
     return (
       <>
         <LoginView onLogin={() => setIsAuthenticated(true)} showAlert={showAlert} />
-        {modalConfig.isOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[100]">
-            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 transform transition-all">
-              <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center">
-                {modalConfig.type === 'confirm' ? <AlertCircle className="mr-2 text-blue-500" size={20} /> : <CheckCircle className="mr-2 text-green-500" size={20} />}
-                {modalConfig.type === 'confirm' ? '확인' : '알림'}
-              </h3>
-              <p className="text-gray-600 mb-6 whitespace-pre-wrap text-sm leading-relaxed">
-                {modalConfig.message}
-              </p>
-              <div className="flex justify-end space-x-2">
-                {modalConfig.type === 'confirm' && (
-                  <button 
-                    onClick={closeModal} 
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition text-sm shadow-sm"
-                  >
-                    취소
-                  </button>
-                )}
-                <button 
-                  autoFocus 
-                  onClick={() => {
-                    if (modalConfig.onConfirm) modalConfig.onConfirm();
-                    closeModal();
-                  }} 
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition text-sm shadow-sm"
-                >
-                  확인
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {renderModal()}
       </>
     );
   }
@@ -1184,7 +1200,7 @@ export default function WholesalePOS() {
             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><AlertCircle className="mr-2" size={20}/> 재고 부족 알림</h3>
             <div className="max-h-60 overflow-y-auto pr-2">
               <ul className="space-y-3">
-                {products.filter(p => p.stock < 10).map(p => (
+                {products.filter(p => p.stock < 10 && !p.isEnded).map(p => (
                   <li key={p.id} className="flex justify-between items-center p-3 bg-red-50 rounded-lg cursor-pointer hover:bg-red-100 transition" onClick={() => handleGoToProductDetail(p)}>
                     <div>
                       <p className="font-bold text-gray-800 hover:text-blue-600">{p.name}</p>
@@ -1196,7 +1212,7 @@ export default function WholesalePOS() {
                     </div>
                   </li>
                 ))}
-                {products.filter(p => p.stock < 10).length === 0 && (
+                {products.filter(p => p.stock < 10 && !p.isEnded).length === 0 && (
                   <li className="p-4 text-center text-gray-500 text-sm">재고가 부족한 상품이 없습니다.</li>
                 )}
               </ul>
@@ -1446,6 +1462,7 @@ export default function WholesalePOS() {
 
     const productSalesRegex = makeChosungRegex(salesSearchQuery);
     const filteredProductsForSales = products.filter(p => {
+      if (p.isEnded) return false; 
       const matchCategory = salesCategoryTab === '전체' || p.category === salesCategoryTab || (!p.category && salesCategoryTab === '상의');
       const matchSearch = productSalesRegex.test(p.name) || 
         (p.adminName && productSalesRegex.test(p.adminName)) ||
@@ -1780,12 +1797,15 @@ export default function WholesalePOS() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredInventory.map(p => (
-                  <tr key={p.id} className={`transition-colors ${p.stock === 0 ? 'bg-red-50 opacity-90' : 'hover:bg-blue-50/50'}`}>
-                    <td className="p-4 text-sm font-medium text-gray-900">{p.id}</td>
+                  <tr key={p.id} className={`transition-colors ${p.isEnded ? 'bg-amber-50 opacity-90' : (p.stock === 0 ? 'bg-red-50 opacity-90' : 'hover:bg-blue-50/50')}`}>
+                    <td className="p-4 text-sm font-medium text-gray-900">
+                      {p.id}
+                      {p.isEnded && <span className="block mt-1 bg-amber-200 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold w-max">종료상품</span>}
+                    </td>
                     <td className="p-4">
                       <div className="flex items-center space-x-3">
                         {p.image ? (
-                          <img src={p.image} alt={p.name} className={`w-10 h-14 object-cover rounded shadow-sm flex-shrink-0 ${p.stock === 0 ? 'grayscale' : ''}`} />
+                          <img src={p.image} alt={p.name} className={`w-10 h-14 object-cover rounded shadow-sm flex-shrink-0 ${(p.stock === 0 || p.isEnded) ? 'grayscale' : ''}`} />
                         ) : (
                           <div className="w-10 h-14 bg-gray-100 flex items-center justify-center rounded shadow-sm text-gray-400 flex-shrink-0">
                             <Package size={16} />
@@ -1795,7 +1815,7 @@ export default function WholesalePOS() {
                           className="cursor-pointer group"
                           onClick={() => handleGoToProductDetail(p)}
                         >
-                          <span className="text-sm font-bold text-blue-600 group-hover:underline flex items-center">
+                          <span className={`text-sm font-bold group-hover:underline flex items-center ${p.isEnded ? 'text-amber-800' : 'text-blue-600'}`}>
                             {p.name}
                             {p.salePrice && p.salePrice < p.price && <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1 py-0.5 rounded">세일</span>}
                           </span>
@@ -1818,11 +1838,14 @@ export default function WholesalePOS() {
                     </td>
 
                     <td className="p-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${p.stock === 0 ? 'bg-red-100 text-red-700 border border-red-200' : p.stock < 20 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${p.isEnded ? 'bg-amber-200 text-amber-800 border border-amber-300' : (p.stock === 0 ? 'bg-red-100 text-red-700 border border-red-200' : p.stock < 20 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700')}`}>
                         {p.stock === 0 ? '품절' : `${p.stock} 장`}
                       </span>
                     </td>
-                    <td className="p-4 text-sm text-center">
+                    <td className="p-4 text-sm text-center whitespace-nowrap">
+                      <button onClick={() => handleToggleEndProduct(p)} className={`font-medium px-3 py-1.5 rounded mr-2 border shadow-sm ${p.isEnded ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'}`}>
+                        {p.isEnded ? '판매재개' : '종료처리'}
+                      </button>
                       <button onClick={() => handleGoToProductDetail(p, true)} className="text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-3 py-1.5 rounded mr-2 border border-blue-100">수정</button>
                       <button onClick={() => handleDeleteProduct(p.id)} className="text-red-500 hover:text-red-700 font-medium bg-red-50 px-3 py-1.5 rounded border border-red-100">삭제</button>
                     </td>
@@ -1911,7 +1934,8 @@ export default function WholesalePOS() {
         material: addProductForm.material,
         origin: addProductForm.origin,
         image: addProductForm.image,
-        supplierId: addProductForm.supplierId
+        supplierId: addProductForm.supplierId,
+        isEnded: false 
       };
       
       setProducts([...products, newProduct]);
@@ -2090,6 +2114,10 @@ export default function WholesalePOS() {
         const newRestockedQty = isReturn ? (selectedProduct.restockedQty || 0) : (selectedProduct.restockedQty || 0) + qty;
         const updatedProduct = { ...selectedProduct, stock: newStock, restockedQty: newRestockedQty };
         
+        if (!isReturn && qty > 0 && updatedProduct.isEnded) {
+            updatedProduct.isEnded = false; 
+        }
+
         setProducts(products.map(p => p.id === selectedProduct.id ? updatedProduct : p));
         setSelectedProduct(updatedProduct);
         saveItem('products', updatedProduct); 
@@ -2172,6 +2200,11 @@ export default function WholesalePOS() {
         restockedQty: restockedQtyNum,
         stock: newStock
       };
+
+      if (stockDiff > 0 && updated.isEnded) {
+          updated.isEnded = false; 
+      }
+
       setProducts(products.map(p => p.id === updated.id ? updated : p));
       saveItem('products', updated); 
       setSelectedProduct(updated);
@@ -2222,7 +2255,7 @@ export default function WholesalePOS() {
               </>
             ) : (
               selectedProduct.image ? (
-                <img src={selectedProduct.image} alt={selectedProduct.name} className="w-full h-full object-cover" />
+                <img src={selectedProduct.image} alt={selectedProduct.name} className={`w-full h-full object-cover ${(selectedProduct.stock === 0 || selectedProduct.isEnded) ? 'grayscale' : ''}`} />
               ) : (
                 <><Package size={64} className="mb-4 text-gray-300"/><span className="text-sm">이미지 없음</span></>
               )
@@ -2296,8 +2329,9 @@ export default function WholesalePOS() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">{selectedProduct.id}</span>
                     <div className="flex space-x-2">
+                      {selectedProduct.isEnded && <span className="px-3 py-1 rounded-full text-sm font-bold bg-amber-200 text-amber-800">종료상품</span>}
                       <span className="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">초기 재고: {selectedProduct.initialStock ?? selectedProduct.stock}장</span>
-                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${selectedProduct.stock === 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>현재 재고: {selectedProduct.stock}장</span>
+                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${selectedProduct.isEnded ? 'bg-amber-100 text-amber-700' : (selectedProduct.stock === 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700')}`}>현재 재고: {selectedProduct.stock}장</span>
                     </div>
                   </div>
                   <h1 className="text-3xl font-bold text-gray-900 mb-1">{selectedProduct.name}</h1>
@@ -2390,7 +2424,6 @@ export default function WholesalePOS() {
         const pIdx = products.findIndex(p => p.id === log.productId);
         if (pIdx !== -1) {
           const updatedProduct = { ...products[pIdx] };
-          // log.qty가 마이너스(반품)인 경우 빼주면 알아서 더해짐(+)
           updatedProduct.stock = Math.max(0, updatedProduct.stock - log.qty);
           if (log.type !== '매입처반품') {
              updatedProduct.restockedQty = Math.max(0, (updatedProduct.restockedQty || 0) - log.qty);
@@ -3009,9 +3042,7 @@ export default function WholesalePOS() {
       setCustomers(customers.map(c => c.id === updated.id ? updated : c));
       saveItem('customers', updated); 
       
-      // 이름이 변경되었다면, 관련 데이터의 customerName(또는 supplier)도 일괄 업데이트
       if (oldName !== updated.name) {
-        // dailySales 업데이트
         const updatedDailySales = dailySales.map(sale => {
           if (sale.customerName === oldName) {
             const newSale = { ...sale, customerName: updated.name };
@@ -3022,7 +3053,6 @@ export default function WholesalePOS() {
         });
         setDailySales(updatedDailySales);
 
-        // misongList 업데이트
         const updatedMisong = misongList.map(m => {
           if (m.customerName === oldName) {
             const newM = { ...m, customerName: updated.name };
@@ -3033,7 +3063,6 @@ export default function WholesalePOS() {
         });
         setMisongList(updatedMisong);
 
-        // sampleList 업데이트
         const updatedSample = sampleList.map(s => {
           if (s.customerName === oldName) {
             const newS = { ...s, customerName: updated.name };
@@ -3044,7 +3073,6 @@ export default function WholesalePOS() {
         });
         setSampleList(updatedSample);
 
-        // restockHistory 업데이트 (매입처일 경우)
         const updatedRestock = restockHistory.map(r => {
           if (r.supplier === oldName) {
             const newR = { ...r, supplier: updated.name };
@@ -3810,73 +3838,78 @@ export default function WholesalePOS() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 font-sans">
-      <div className="w-64 bg-gray-900 text-white flex flex-col shrink-0">
-        <div className="p-5 flex items-center border-b border-gray-800">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl mr-3 shadow-sm">P</div>
-          <div>
-            <h1 className="font-bold text-lg tracking-wide">POS SYSTEM</h1>
-            <p className="text-xs text-gray-400">의류 도매 매장관리</p>
-          </div>
-        </div>
-        
-        <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-          {menuOrder.map((menuId, index) => {
-            const { label, Icon } = MENU_CONFIG[menuId];
-            return (
-              <button 
-                key={menuId} 
-                onClick={() => navigateTo(menuId, true)} 
-                className={`w-full flex justify-between items-center px-6 py-3 text-sm font-medium transition ${activeMenu === menuId ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}
-              >
-                <div className="flex items-center">
-                  <Icon className="mr-3" size={20} /> {label}
-                </div>
-                <span className="text-[10px] text-gray-500 font-bold bg-gray-800 px-1.5 py-0.5 rounded">F{index + 1}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="p-4 border-t border-gray-800">
-          <button onClick={() => navigateTo('settings', true)} className="flex items-center text-gray-400 hover:text-white text-sm">
-            <Settings className="mr-2" size={16} /> 설정
-          </button>
-          <button onClick={handleLogout} className="flex items-center text-red-400 hover:text-red-300 text-sm mt-3 w-full text-left">
-            <LogOut className="mr-2" size={16} /> 로그아웃
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shrink-0 z-20">
-          <div className="flex items-center text-gray-600"><span className="font-bold text-gray-800 mr-2">동대문 청평화 2층 가 12호</span> 매장</div>
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center text-gray-600"><Clock className="mr-2" size={18} /><HeaderClock /></div>
-            <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-bold">관</div>
-          </div>
-        </header>
-
-        <main key={activeMenu} className="flex-1 overflow-hidden bg-gray-50 flex flex-col relative z-0">
-          {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice'].includes(activeMenu) && (
-            <div className="px-6 pt-6 pb-2 shrink-0">
-              <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
-                <ArrowLeft size={16} className="mr-1"/> 뒤로가기
-              </button>
+    <>
+      <div className="flex h-screen bg-gray-100 font-sans">
+        <div className="w-64 bg-gray-900 text-white flex flex-col shrink-0">
+          <div className="p-5 flex items-center border-b border-gray-800">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl mr-3 shadow-sm">P</div>
+            <div>
+              <h1 className="font-bold text-lg tracking-wide">POS SYSTEM</h1>
+              <p className="text-xs text-gray-400">의류 도매 매장관리</p>
             </div>
-          )}
-          {renderContent()}
+          </div>
+          
+          <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+            {menuOrder.map((menuId, index) => {
+              const { label, Icon } = MENU_CONFIG[menuId];
+              return (
+                <button 
+                  key={menuId} 
+                  onClick={() => navigateTo(menuId, true)} 
+                  className={`w-full flex justify-between items-center px-6 py-3 text-sm font-medium transition ${activeMenu === menuId ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}
+                >
+                  <div className="flex items-center">
+                    <Icon className="mr-3" size={20} /> {label}
+                  </div>
+                  <span className="text-[10px] text-gray-500 font-bold bg-gray-800 px-1.5 py-0.5 rounded">F{index + 1}</span>
+                </button>
+              );
+            })}
+          </nav>
 
-          {showTopButton && (
-            <button
-              onClick={scrollToTop}
-              className="absolute bottom-8 right-8 p-3 bg-gray-800 text-white rounded-full shadow-lg hover:bg-gray-700 transition z-50 flex items-center justify-center"
-            >
-              <ArrowUp size={24} />
+          <div className="p-4 border-t border-gray-800">
+            <button onClick={() => navigateTo('settings', true)} className="flex items-center text-gray-400 hover:text-white text-sm">
+              <Settings className="mr-2" size={16} /> 설정
             </button>
-          )}
-        </main>
+            <button onClick={handleLogout} className="flex items-center text-red-400 hover:text-red-300 text-sm mt-3 w-full text-left">
+              <LogOut className="mr-2" size={16} /> 로그아웃
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col min-w-0">
+          <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shrink-0 z-20">
+            <div className="flex items-center text-gray-600"><span className="font-bold text-gray-800 mr-2">동대문 청평화 2층 가 12호</span> 매장</div>
+            <div className="flex items-center space-x-6">
+              <div className="flex items-center text-gray-600"><Clock className="mr-2" size={18} /><HeaderClock /></div>
+              <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-gray-600 font-bold">관</div>
+            </div>
+          </header>
+
+          <main key={activeMenu} className="flex-1 overflow-hidden bg-gray-50 flex flex-col relative z-0">
+            {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice'].includes(activeMenu) && (
+              <div className="px-6 pt-6 pb-2 shrink-0">
+                <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
+                  <ArrowLeft size={16} className="mr-1"/> 뒤로가기
+                </button>
+              </div>
+            )}
+            {renderContent()}
+
+            {showTopButton && (
+              <button
+                onClick={scrollToTop}
+                className="absolute bottom-8 right-8 p-3 bg-gray-800 text-white rounded-full shadow-lg hover:bg-gray-700 transition z-50 flex items-center justify-center"
+              >
+                <ArrowUp size={24} />
+              </button>
+            )}
+          </main>
+        </div>
       </div>
-    </div>
+      
+      {/* 팝업 모달을 로그인 상태에 관계없이 항상 최상단에 렌더링되도록 수정 */}
+      {renderModal()}
+    </>
   );
 }
