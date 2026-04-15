@@ -3837,6 +3837,103 @@ export default function WholesalePOS() {
     }
   };
 
+  // 거래 상세 내역 팝업 렌더링 함수 추가
+  const renderSaleDetailModal = () => {
+    if (!saleDetailModal) return null;
+    
+    const { id, date, time, customerName, type, items, total, actualPayment, appliedBalance } = saleDetailModal;
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[110]">
+        <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-3xl max-h-[90vh] flex flex-col relative animate-in fade-in zoom-in duration-200">
+          <div className="flex justify-between items-center mb-4 border-b pb-4 shrink-0">
+            <h2 className="text-xl font-bold text-gray-800 flex items-center">
+              <FileText className="mr-2 text-blue-600" size={24}/> 
+              상세 거래 내역 <span className={`ml-2 text-sm px-2 py-1 rounded text-white ${type === '판매' ? 'bg-blue-500' : 'bg-red-500'}`}>{type}</span>
+            </h2>
+            <button onClick={() => setSaleDetailModal(null)} className="text-gray-400 hover:text-gray-600 transition p-1 bg-gray-100 hover:bg-gray-200 rounded-full">
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="mb-4 space-y-2 text-sm text-gray-700 bg-gray-50 p-4 rounded-lg shrink-0 border border-gray-100">
+            <div className="flex justify-between"><span className="font-bold text-gray-500">거래일시:</span> <span className="font-medium">{date} {time}</span></div>
+            <div className="flex justify-between"><span className="font-bold text-gray-500">거래처:</span> <span className="font-bold text-gray-900">{customerName}</span></div>
+            <div className="flex justify-between"><span className="font-bold text-gray-500">거래번호:</span> <span className="font-medium text-gray-500">{id}</span></div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto mb-4 border border-gray-200 rounded-lg">
+            <table className="w-full text-left">
+              <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
+                <tr>
+                  <th className="p-3 text-sm font-bold text-gray-600">상품명</th>
+                  <th className="p-3 text-sm font-bold text-gray-600 text-center">옵션</th>
+                  <th className="p-3 text-sm font-bold text-gray-600 text-right">단가</th>
+                  <th className="p-3 text-sm font-bold text-gray-600 text-right">수량</th>
+                  <th className="p-3 text-sm font-bold text-gray-600 text-right">금액</th>
+                  <th className="p-3 text-sm font-bold text-gray-600 text-center">관리</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {items && items.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-blue-50 transition-colors">
+                    <td className="p-3 text-sm font-bold text-gray-800">{item.name}</td>
+                    <td className="p-3 text-sm text-gray-600 text-center">{item.color} / {item.size}</td>
+                    <td className="p-3 text-sm text-right text-gray-500">₩ {item.price.toLocaleString()}</td>
+                    <td className="p-3 text-sm text-right font-medium">{item.qty}장</td>
+                    <td className="p-3 text-sm font-bold text-right text-gray-900">₩ {(item.price * item.qty).toLocaleString()}</td>
+                    <td className="p-3 text-sm text-center">
+                      <button 
+                        onClick={() => handlePartialDelete(id, idx)}
+                        className="text-red-500 hover:text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 px-3 py-1.5 rounded text-xs font-bold transition shadow-sm"
+                      >
+                        상품 삭제
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4 shrink-0 space-y-2 px-2">
+              <div className="flex justify-between text-sm text-gray-600">
+                  <span>총 상품 금액:</span>
+                  <span className="font-medium">₩ {Math.abs(total || 0).toLocaleString()}</span>
+              </div>
+              {type === '판매' && (appliedBalance || 0) > 0 && (
+                  <div className="flex justify-between text-sm text-blue-600 font-medium">
+                      <span>잔고 차감액:</span>
+                      <span>- ₩ {(appliedBalance || 0).toLocaleString()}</span>
+                  </div>
+              )}
+              {type === '반품' && (appliedBalance || 0) > 0 && (
+                  <div className="flex justify-between text-sm text-purple-600 font-medium">
+                      <span>잔고(예치금) 적립:</span>
+                      <span>+ ₩ {(appliedBalance || 0).toLocaleString()}</span>
+                  </div>
+              )}
+              <div className="flex justify-between text-lg font-bold text-gray-900 border-t border-gray-200 mt-3 pt-3">
+                  <span>{type === '판매' ? '최종 결제액' : '최종 반품액'} :</span>
+                  <span className={type === '판매' ? 'text-blue-600' : 'text-purple-600'}>
+                    ₩ {(actualPayment || 0).toLocaleString()}
+                  </span>
+              </div>
+          </div>
+
+          <div className="mt-6 flex justify-end shrink-0">
+            <button 
+              onClick={() => setSaleDetailModal(null)}
+              className="px-8 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 font-bold shadow-md transition"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="flex h-screen bg-gray-100 font-sans">
@@ -3910,6 +4007,9 @@ export default function WholesalePOS() {
       
       {/* 팝업 모달을 로그인 상태에 관계없이 항상 최상단에 렌더링되도록 수정 */}
       {renderModal()}
+      
+      {/* 상세 거래 내역 모달 */}
+      {renderSaleDetailModal()}
     </>
   );
 }
