@@ -71,6 +71,14 @@ const makeChosungRegex = (searchWord) => {
   return new RegExp(regexStr, 'i');
 };
 
+/** 연락처: 숫자만 입력 시 자동으로 000-0000-0000 (최대 11자리) */
+const formatPhoneHyphens = (input) => {
+  const digits = String(input ?? '').replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+};
+
 const MENU_CONFIG = {
   dashboard: { label: '메인화면 (현황)', Icon: Home },
   sales: { label: '판매 / 반품', Icon: ShoppingCart },
@@ -1224,7 +1232,7 @@ export default function WholesalePOS() {
   };
 
   const handleAddToCart = (product) => {
-    const currentScroll = mainScrollRef.current?.scrollTop;
+    const savedTop = mainScrollRef.current?.scrollTop ?? 0;
     const activePrice = (product.salePrice && product.salePrice < product.price) ? product.salePrice : product.price;
     const existing = cart.find(item => item.id === product.id);
     if (existing) {
@@ -1232,12 +1240,15 @@ export default function WholesalePOS() {
     } else {
       setCart([...cart, { ...product, price: activePrice, originalPrice: product.price, qty: 1 }]);
     }
-    
-    setTimeout(() => {
-      if (mainScrollRef.current && currentScroll !== undefined) {
-        mainScrollRef.current.scrollTop = currentScroll;
-      }
-    }, 0);
+    queueMicrotask(() => {
+      requestAnimationFrame(() => {
+        const el = mainScrollRef.current;
+        if (el) {
+          el.scrollTop = savedTop;
+          salesScrollRef.current = savedTop;
+        }
+      });
+    });
   };
 
   const updateCartQty = (id, delta) => {
@@ -1511,8 +1522,8 @@ export default function WholesalePOS() {
     };
 
     return (
-      <div className="h-full flex flex-col md:flex-row bg-gray-100">
-        <div className="w-full md:w-1/3 bg-white border-r border-gray-200 flex flex-col shadow-lg z-20">
+      <div className="flex h-full min-h-0 flex-col bg-gray-100 md:flex-row">
+        <div className="flex min-h-0 w-full shrink-0 flex-col border-r border-gray-200 bg-white shadow-lg md:w-1/3 z-20">
           <div className="p-4 bg-gray-50 border-b space-y-3">
             <div className="flex justify-between items-center">
               <h2 className="text-sm font-bold text-gray-800">판매 일자</h2>
@@ -1583,9 +1594,9 @@ export default function WholesalePOS() {
             </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
             {cart.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-gray-400">우측에서 상품을 선택하세요.</div>
+              <div className="flex min-h-[12rem] items-center justify-center text-gray-400">우측에서 상품을 선택하세요.</div>
             ) : (
               cart.map(item => {
                 const pInfo = products.find(p => p.id === item.id);
@@ -1658,40 +1669,47 @@ export default function WholesalePOS() {
           </div>
         </div>
 
-        <div className="w-full md:w-2/3 p-6 pb-28 overflow-y-auto z-0" onScroll={handleContainerScroll} ref={mainScrollRef}>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold text-gray-800">상품 목록</h2>
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
-              <input 
-                type="text" 
-                lang="ko"
-                style={{ imeMode: 'active' }}
-                placeholder="상품명, 초성 검색..." 
-                value={salesSearchQuery}
-                onChange={(e) => setSalesSearchQuery(e.target.value)}
-                className="pl-10 pr-10 py-2 border rounded-full focus:ring-2 focus:ring-blue-500 outline-none w-72 transition-shadow shadow-sm" 
-              />
-              {salesSearchQuery && (
-                <button onClick={() => setSalesSearchQuery('')} className="absolute right-4 top-2.5 text-gray-400 hover:text-gray-600">
-                  <X size={18} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-gray-100 md:w-2/3">
+          <div className="shrink-0 bg-gray-100 px-6 pb-4 pt-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-800">상품 목록</h2>
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                <input 
+                  type="text" 
+                  lang="ko"
+                  style={{ imeMode: 'active' }}
+                  placeholder="상품명, 초성 검색..." 
+                  value={salesSearchQuery}
+                  onChange={(e) => setSalesSearchQuery(e.target.value)}
+                  className="w-72 rounded-full border py-2 pl-10 pr-10 shadow-sm outline-none transition-shadow focus:ring-2 focus:ring-blue-500" 
+                />
+                {salesSearchQuery && (
+                  <button type="button" onClick={() => setSalesSearchQuery('')} className="absolute right-4 top-2.5 text-gray-400 hover:text-gray-600">
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex w-max flex-wrap gap-1 rounded-lg bg-gray-200 p-1">
+              {CATEGORIES.map(cat => (
+                <button 
+                  type="button"
+                  key={cat}
+                  onClick={() => setSalesCategoryTab(cat)} 
+                  className={`rounded-md px-4 py-1.5 text-sm font-bold transition ${salesCategoryTab === cat ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {cat}
                 </button>
-              )}
+              ))}
             </div>
           </div>
-          
-          <div className="flex bg-gray-200 p-1 rounded-lg mb-6 w-max flex-wrap gap-1">
-            {CATEGORIES.map(cat => (
-              <button 
-                key={cat}
-                onClick={() => setSalesCategoryTab(cat)} 
-                className={`px-4 py-1.5 rounded-md text-sm font-bold transition ${salesCategoryTab === cat ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
 
+          <div
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-28 z-0"
+            onScroll={handleContainerScroll}
+            ref={mainScrollRef}
+          >
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {filteredProductsForSales.map(product => {
               const hasSale = product.salePrice && product.salePrice < product.price;
@@ -1700,8 +1718,13 @@ export default function WholesalePOS() {
               return (
                 <div 
                   key={product.id} 
-                  onClick={() => handleAddToCart(product)}
-                  className={`bg-white p-4 rounded-xl shadow-sm border border-gray-200 transition group relative overflow-hidden cursor-pointer hover:border-blue-500 hover:shadow-md ${
+                  onPointerDown={(e) => {
+                    if (!e.isPrimary) return;
+                    if (e.pointerType === 'mouse' && e.button !== 0) return;
+                    e.preventDefault();
+                    handleAddToCart(product);
+                  }}
+                  className={`bg-white p-4 rounded-xl shadow-sm border border-gray-200 transition group relative overflow-hidden cursor-pointer hover:border-blue-500 hover:shadow-md select-none touch-manipulation ${
                     product.stock === 0 ? 'opacity-60 bg-gray-50' : ''
                   }`}
                 >
@@ -1736,6 +1759,7 @@ export default function WholesalePOS() {
                 <p>검색 결과가 없습니다.</p>
               </div>
             )}
+          </div>
           </div>
         </div>
       </div>
@@ -3242,7 +3266,14 @@ export default function WholesalePOS() {
   };
 
   const renderAddCustomerView = () => {
-    const handleAddCustomerChange = (e) => setAddCustomerForm({ ...addCustomerForm, [e.target.name]: e.target.value });
+    const handleAddCustomerChange = (e) => {
+      const { name, value } = e.target;
+      if (name === 'phone') {
+        setAddCustomerForm({ ...addCustomerForm, phone: formatPhoneHyphens(value) });
+        return;
+      }
+      setAddCustomerForm({ ...addCustomerForm, [name]: value });
+    };
 
     const handleSubmit = (e) => {
       e.preventDefault();
@@ -3306,7 +3337,7 @@ export default function WholesalePOS() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div><label className="block text-sm font-medium text-gray-700 mb-2">거래처명 (상호) *</label><input type="text" name="name" lang="ko" style={{ imeMode: 'active' }} value={addCustomerForm.name} onChange={handleAddCustomerChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-2">연락처</label><input type="text" name="phone" value={addCustomerForm.phone} onChange={handleAddCustomerChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-2">연락처</label><input type="text" name="phone" inputMode="numeric" autoComplete="tel" placeholder="010-0000-0000" value={addCustomerForm.phone} onChange={handleAddCustomerChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" /></div>
               <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-2">사업자번호</label><input type="text" name="bizNum" value={addCustomerForm.bizNum} onChange={handleAddCustomerChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             </div>
             <div><label className="block text-sm font-medium text-gray-700 mb-2">메모 (참고사항)</label><textarea name="memo" lang="ko" style={{ imeMode: 'active' }} value={addCustomerForm.memo} onChange={handleAddCustomerChange} rows="3" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="엔터키는 줄바꿈, 다음 칸 이동은 탭(Tab)키를 이용하세요."></textarea></div>
