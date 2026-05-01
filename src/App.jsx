@@ -328,7 +328,7 @@ export default function WholesalePOS() {
   const renderModal = () => {
     if (!modalConfig.isOpen) return null;
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-[100]">
+      <div className="fixed inset-0 bg-white/40 backdrop-blur-md flex items-center justify-center z-[100]">
         <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 transform transition-all">
           <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center">
             {modalConfig.type === 'confirm' ? <AlertCircle className="mr-2 text-blue-500" size={20} /> : <CheckCircle className="mr-2 text-green-500" size={20} />}
@@ -1312,7 +1312,6 @@ export default function WholesalePOS() {
     let updatedProducts = [...products];
     let newMisongList = [...misongList];
     let newSampleList = [...sampleList];
-    let autoMisongCount = 0;
     
     let cartWithDetails = cart.map(item => {
       const { image, ...essentialData } = item;
@@ -1327,7 +1326,6 @@ export default function WholesalePOS() {
       if (type === '결제') {
         if (item.qty > currentStock) {
           misongQty = item.qty - currentStock;
-          autoMisongCount++;
         }
       }
 
@@ -1430,21 +1428,6 @@ export default function WholesalePOS() {
     
     setMisongList(newMisongList);
     setSampleList(newSampleList);
-
-    let alertMsg = '';
-    if (type === '결제') {
-      alertMsg = `[결제 완료]\n총 상품금액: ₩${cartTotal.toLocaleString()}`;
-      if (discountAmount > 0) alertMsg += `\n할인적용: -₩${discountAmount.toLocaleString()}`;
-      if (appliedBalance > 0) alertMsg += `\n고객잔고 차감: -₩${appliedBalance.toLocaleString()}`;
-      alertMsg += `\n-----------------------\n최종 결제액: ₩${actualPayment.toLocaleString()}`;
-      if (autoMisongCount > 0) alertMsg += `\n\n※ 재고가 부족한 상품은 자동으로 미송 처리되었습니다.`;
-    } else if (type === '반품') {
-      alertMsg = `[반품 처리 완료]\n반품액 ₩${amountAfterDiscount.toLocaleString()} 이(가) 고객 잔고(예치금)로 적립되었습니다.`;
-    } else if (type === '샘플') {
-      alertMsg = `[샘플 출고 완료]\n샘플 내역에 추가되었으며, 재고가 차감되었습니다.`;
-    }
-
-    showAlert(alertMsg);
 
     const receiptData = {
       type,
@@ -3875,8 +3858,14 @@ export default function WholesalePOS() {
     const { id, date, time, customerName, type, items, total, actualPayment, appliedBalance } = saleDetailModal;
     
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[110]">
-        <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-3xl max-h-[90vh] flex flex-col relative animate-in fade-in zoom-in duration-200">
+      <div
+        className="fixed inset-0 bg-white/40 backdrop-blur-md flex items-center justify-center z-[110]"
+        onClick={() => setSaleDetailModal(null)}
+      >
+        <div
+          className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-3xl max-h-[90vh] flex flex-col relative animate-in fade-in zoom-in duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex justify-between items-center mb-4 border-b pb-4 shrink-0">
             <h2 className="text-xl font-bold text-gray-800 flex items-center">
               <FileText className="mr-2 text-blue-600" size={24}/> 
