@@ -51,6 +51,27 @@ const getTodayStr = () => {
   return `${y}-${m}-${d}`;
 };
 
+/** 한국시간 22:00 이후 판매는 익일 매출일자로 간주 (getTodayStr과 동일 기준 시각) */
+const getDefaultTransactionDateStr = () => {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const kst = new Date(utc + (9 * 3600000));
+  const hour = kst.getHours();
+  const y = kst.getFullYear();
+  const mo = kst.getMonth();
+  const d = kst.getDate();
+  if (hour >= 22) {
+    const next = new Date(y, mo, d + 1);
+    const ny = next.getFullYear();
+    const nm = String(next.getMonth() + 1).padStart(2, '0');
+    const nd = String(next.getDate()).padStart(2, '0');
+    return `${ny}-${nm}-${nd}`;
+  }
+  const m = String(mo + 1).padStart(2, '0');
+  const dd = String(d).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
+
 const makeChosungRegex = (searchWord) => {
   if (!searchWord) return new RegExp('');
   const CHOSUNG = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
@@ -198,7 +219,7 @@ export default function WholesalePOS() {
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerListTab, setCustomerListTab] = useState('전체');
-  const [customerSortType, setCustomerSortType] = useState('code'); 
+  const [customerSort, setCustomerSort] = useState({ key: 'id', direction: 'asc' });
   
   const [customerDetailEditMode, setCustomerDetailEditMode] = useState(false);
   const [customerEditForm, setCustomerEditForm] = useState({});
@@ -213,7 +234,7 @@ export default function WholesalePOS() {
   const [saleDetailModal, setSaleDetailModal] = useState(null);
 
   const [misongTab, setMisongTab] = useState('misong');
-  const [transactionDate, setTransactionDate] = useState(today);
+  const [transactionDate, setTransactionDate] = useState(() => getDefaultTransactionDateStr());
 
   const [cashForm, setCashForm] = useState({ type: '입금', amount: '', memo: '' });
   const [noticeForm, setNoticeForm] = useState({ title: '', content: '' });
@@ -232,6 +253,11 @@ export default function WholesalePOS() {
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
+
+  const [productCustomerPriceSearch, setProductCustomerPriceSearch] = useState('');
+  const [customerTierPricePickId, setCustomerTierPricePickId] = useState('');
+  const [customerTierPriceInput, setCustomerTierPriceInput] = useState('');
+  const [productTierCustomerDropdownOpen, setProductTierCustomerDropdownOpen] = useState(false);
 
   const handleContainerScroll = (e) => {
     if (e.target.scrollTop > 300) setShowTopButton(true);
@@ -253,6 +279,11 @@ export default function WholesalePOS() {
       setCustomerSearchQuery('');
       setRestockSearchQuery('');
       setCustomerSearchTerm('');
+      setSelectedCustomer('');
+      setCart([]);
+      setDiscountAmount(0);
+      setFocusedCustomerIndex(-1);
+      setTransactionDate(getDefaultTransactionDateStr());
       setReportDate(getTodayStr());
       setReportMonth(getTodayStr().substring(0, 7));
       setRestockSearchDate(getTodayStr());
@@ -395,8 +426,15 @@ export default function WholesalePOS() {
 
   const handleGoToProductDetail = (p, editMode = false) => {
     setSelectedProduct(p);
-    setProductEditForm(p);
+    setProductEditForm({
+      ...p,
+      customerPrices: p.customerPrices && typeof p.customerPrices === 'object' ? { ...p.customerPrices } : {}
+    });
     setProductDetailEditMode(editMode);
+    setProductCustomerPriceSearch('');
+    setCustomerTierPricePickId('');
+    setCustomerTierPriceInput('');
+    setProductTierCustomerDropdownOpen(false);
     setProductRestockQty('');
     setProductRestockSupplierId('');
     setProductRestockDate(getTodayStr());
@@ -520,6 +558,35 @@ export default function WholesalePOS() {
   }, [modalConfig, menuOrder, activeMenu, menuHistory, saleDetailModal]);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+
+  const resolveProductUnitPrice = (product, customerId) => {
+    if (!product) return 0;
+    if (customerId && product.customerPrices && Object.prototype.hasOwnProperty.call(product.customerPrices, customerId)) {
+      const n = Number(product.customerPrices[customerId]);
+      if (!Number.isNaN(n) && n >= 0) return n;
+    }
+    return (product.salePrice != null && product.salePrice < product.price) ? product.salePrice : product.price;
+  };
+
+  const productUsesCustomerPrice = (product, customerId) => {
+    if (!product || !customerId || !product.customerPrices) return false;
+    if (!Object.prototype.hasOwnProperty.call(product.customerPrices, customerId)) return false;
+    const n = Number(product.customerPrices[customerId]);
+    return !Number.isNaN(n) && n >= 0;
+  };
+
+  useEffect(() => {
+    setCart((prev) => {
+      if (prev.length === 0) return prev;
+      return prev.map((item) => {
+        const p = products.find((pr) => pr.id === item.id);
+        if (!p) return item;
+        const unit = resolveProductUnitPrice(p, selectedCustomer);
+        const uses = productUsesCustomerPrice(p, selectedCustomer);
+        return { ...item, price: unit, originalPrice: p.price, usedCustomerPrice: uses };
+      });
+    });
+  }, [selectedCustomer, products]);
 
   const printReceipt = (receiptData) => {
     if (receiptPrintCount === 0) return;
@@ -1233,12 +1300,13 @@ export default function WholesalePOS() {
 
   const handleAddToCart = (product) => {
     const savedTop = mainScrollRef.current?.scrollTop ?? 0;
-    const activePrice = (product.salePrice && product.salePrice < product.price) ? product.salePrice : product.price;
+    const activePrice = resolveProductUnitPrice(product, selectedCustomer);
+    const usesTier = productUsesCustomerPrice(product, selectedCustomer);
     const existing = cart.find(item => item.id === product.id);
     if (existing) {
       setCart(cart.map(item => item.id === product.id ? { ...item, qty: item.qty + 1 } : item));
     } else {
-      setCart([...cart, { ...product, price: activePrice, originalPrice: product.price, qty: 1 }]);
+      setCart([...cart, { ...product, price: activePrice, originalPrice: product.price, qty: 1, usedCustomerPrice: usesTier }]);
     }
     queueMicrotask(() => {
       requestAnimationFrame(() => {
@@ -1449,6 +1517,7 @@ export default function WholesalePOS() {
     setCustomerSearchTerm(''); 
     setFocusedCustomerIndex(-1);
     setSalesSearchQuery('');
+    setTransactionDate(getDefaultTransactionDateStr());
   };
 
   const renderSalesView = () => {
@@ -1517,7 +1586,7 @@ export default function WholesalePOS() {
                   onChange={(e) => setTransactionDate(e.target.value)}
                   className="p-1 border border-gray-300 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
                 />
-                <button onClick={() => setTransactionDate(today)} className="px-2 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded text-xs font-bold hover:bg-blue-100 transition">오늘</button>
+                <button type="button" onClick={() => setTransactionDate(getDefaultTransactionDateStr())} className="px-2 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded text-xs font-bold hover:bg-blue-100 transition" title="22시 이후는 익일로 맞춤">오늘</button>
               </div>
             </div>
             
@@ -1590,9 +1659,10 @@ export default function WholesalePOS() {
                 return (
                   <div key={item.id} className="border rounded-lg p-3 relative bg-white shadow-sm">
                     <button onClick={() => removeCartItem(item.id)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
-                    <div className="flex items-center mb-0.5">
+                    <div className="flex items-center mb-0.5 flex-wrap gap-1">
                       <p className="font-bold text-gray-800 mr-2">{item.name}</p>
-                      {item.originalPrice > item.price && <span className="bg-red-100 text-red-600 text-[10px] px-1 rounded font-bold mr-1">세일</span>}
+                      {item.usedCustomerPrice && <span className="bg-indigo-100 text-indigo-700 text-[10px] px-1 rounded font-bold mr-1">거래처 단가</span>}
+                      {!item.usedCustomerPrice && item.originalPrice > item.price && <span className="bg-red-100 text-red-600 text-[10px] px-1 rounded font-bold mr-1">세일</span>}
                       {misongQty > 0 && <span className="bg-orange-100 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold border border-orange-200">미송 {misongQty}장</span>}
                     </div>
                     <div className="flex justify-between items-center mb-2">
@@ -1695,6 +1765,8 @@ export default function WholesalePOS() {
           >
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {filteredProductsForSales.map(product => {
+              const displayUnit = resolveProductUnitPrice(product, selectedCustomer);
+              const tierForCustomer = productUsesCustomerPrice(product, selectedCustomer);
               const hasSale = product.salePrice && product.salePrice < product.price;
               const discountRate = hasSale ? Math.round((1 - product.salePrice / product.price) * 100) : 0;
               
@@ -1711,7 +1783,10 @@ export default function WholesalePOS() {
                     product.stock === 0 ? 'opacity-60 bg-gray-50' : ''
                   }`}
                 >
-                  {hasSale && <div className="absolute top-0 left-0 bg-red-600 text-white text-[11px] font-bold px-2 py-1 rounded-br-lg z-10 flex items-center"><Tag size={12} className="mr-1"/> -{discountRate}%</div>}
+                  {tierForCustomer && (
+                    <div className="absolute top-0 left-0 bg-indigo-600 text-white text-[11px] font-bold px-2 py-1 rounded-br-lg z-10">거래처 단가</div>
+                  )}
+                  {!tierForCustomer && hasSale && <div className="absolute top-0 left-0 bg-red-600 text-white text-[11px] font-bold px-2 py-1 rounded-br-lg z-10 flex items-center"><Tag size={12} className="mr-1"/> -{discountRate}%</div>}
                   {product.stock === 0 && <div className="absolute top-0 right-0 bg-gray-800 text-white text-xs font-bold px-2 py-1 rounded-bl-lg z-10">품절</div>}
                   
                   {product.image ? (
@@ -1723,7 +1798,12 @@ export default function WholesalePOS() {
                   <h3 className="font-bold text-gray-800 text-sm truncate mt-2">{product.name}</h3>
                   <p className="text-xs text-gray-500 mb-2">{product.color} / {product.size}</p>
                   <div className="flex justify-between items-end">
-                    {hasSale ? (
+                    {tierForCustomer ? (
+                      <div className="flex flex-col">
+                        <span className="text-[11px] text-gray-400 line-through leading-none mb-0.5">₩ {product.price.toLocaleString()}</span>
+                        <span className="font-bold text-indigo-600 leading-none">₩ {displayUnit.toLocaleString()}</span>
+                      </div>
+                    ) : hasSale ? (
                       <div className="flex flex-col">
                         <span className="text-[11px] text-gray-400 line-through leading-none mb-0.5">₩ {product.price.toLocaleString()}</span>
                         <span className="font-bold text-red-600 leading-none">₩ {product.salePrice.toLocaleString()}</span>
@@ -1942,7 +2022,8 @@ export default function WholesalePOS() {
         origin: addProductForm.origin,
         image: addProductForm.image,
         supplierId: addProductForm.supplierId,
-        isEnded: false 
+        isEnded: false,
+        customerPrices: {}
       };
       
       setProducts([...products, newProduct]);
@@ -2102,6 +2183,36 @@ export default function WholesalePOS() {
 
     const suppliers = customers.filter(c => c.type === '매입처');
 
+    const tierCustomerRegex = makeChosungRegex(productCustomerPriceSearch);
+    const tierSalesCustomers = customers.filter(c =>
+      (!c.type || c.type === '판매처' || c.type === '매출처') &&
+      (tierCustomerRegex.test(c.name) || c.id.toLowerCase().includes(productCustomerPriceSearch.toLowerCase()))
+    );
+
+    const addTierPriceRow = () => {
+      if (!customerTierPricePickId) {
+        showAlert('목록에서 업체를 선택하세요.');
+        return;
+      }
+      const amt = Number(customerTierPriceInput);
+      if (customerTierPriceInput === '' || Number.isNaN(amt) || amt < 0) {
+        showAlert('차등 금액(원)을 입력하세요.');
+        return;
+      }
+      setProductEditForm({
+        ...productEditForm,
+        customerPrices: { ...(productEditForm.customerPrices || {}), [customerTierPricePickId]: amt },
+      });
+      setCustomerTierPriceInput('');
+    };
+
+    const removeTierPriceRow = (customerId) => {
+      const next = { ...(productEditForm.customerPrices || {}) };
+      delete next[customerId];
+      setProductEditForm({ ...productEditForm, customerPrices: next });
+      if (customerTierPricePickId === customerId) setCustomerTierPricePickId('');
+    };
+
     const handleRestock = (isReturn = false) => {
       if (!productRestockSupplierId) {
         showAlert('매입처를 선택하세요.');
@@ -2205,7 +2316,10 @@ export default function WholesalePOS() {
         salePrice: salePriceNum,
         initialStock: initialStockNum,
         restockedQty: restockedQtyNum,
-        stock: newStock
+        stock: newStock,
+        customerPrices: productEditForm.customerPrices && typeof productEditForm.customerPrices === 'object'
+          ? { ...productEditForm.customerPrices }
+          : {}
       };
 
       if (stockDiff > 0 && updated.isEnded) {
@@ -2223,7 +2337,7 @@ export default function WholesalePOS() {
     const discountRate = hasSale ? Math.round((1 - selectedProduct.salePrice / selectedProduct.price) * 100) : 0;
 
     return (
-      <div className="px-6 pb-6 pt-2 h-full flex flex-col">
+      <div className="px-6 pb-6 pt-2 flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between mb-6 shrink-0">
           <div className="flex items-center">
             <h2 className="text-2xl font-bold text-gray-800">상품 상세 정보</h2>
@@ -2236,14 +2350,24 @@ export default function WholesalePOS() {
               </>
             ) : (
               <>
-                <button onClick={() => { setProductEditForm(selectedProduct); setProductDetailEditMode(true); }} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium shadow-sm">수정</button>
+                <button onClick={() => {
+                  setProductEditForm({
+                    ...selectedProduct,
+                    customerPrices: selectedProduct.customerPrices ? { ...selectedProduct.customerPrices } : {}
+                  });
+                  setProductDetailEditMode(true);
+                  setProductCustomerPriceSearch('');
+                  setCustomerTierPricePickId('');
+                  setCustomerTierPriceInput('');
+                  setProductTierCustomerDropdownOpen(false);
+                }} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium shadow-sm">수정</button>
                 <button onClick={() => handleDeleteProduct(selectedProduct.id)} className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 font-medium shadow-sm">삭제</button>
               </>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col md:flex-row gap-8 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 pb-16 max-w-4xl flex flex-1 min-h-0 flex-col md:flex-row gap-8 overflow-y-auto overscroll-contain" onScroll={handleContainerScroll} ref={mainScrollRef}>
           
           <div className="w-full md:w-1/3 max-w-[320px] aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0 self-start">
             {productDetailEditMode ? (
@@ -2329,6 +2453,110 @@ export default function WholesalePOS() {
                     <input type="text" lang="ko" style={{ imeMode: 'active' }} value={productEditForm.origin || ''} onChange={e => setProductEditForm({...productEditForm, origin: e.target.value})} className="w-full border p-2 rounded outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
+
+                <div className="mt-6 p-4 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-3 relative z-30">
+                  <div>
+                    <h3 className="text-sm font-bold text-indigo-900">업체별 차등 금액 적용</h3>
+                    <p className="text-xs text-indigo-900/70 mt-0.5">판매처를 검색한 뒤 목록에서 업체를 선택하고, 차등 단가를 입력해 추가하세요.</p>
+                  </div>
+                  <div className="relative z-40">
+                    <Search className="absolute left-3 top-2.5 text-gray-400 pointer-events-none" size={16} />
+                    <input
+                      type="text"
+                      lang="ko"
+                      style={{ imeMode: 'active' }}
+                      placeholder="업체명 검색 (초성 가능)"
+                      value={productCustomerPriceSearch}
+                      onChange={(e) => {
+                        setProductCustomerPriceSearch(e.target.value);
+                        setProductTierCustomerDropdownOpen(true);
+                      }}
+                      onFocus={() => {
+                        if (productCustomerPriceSearch.trim()) setProductTierCustomerDropdownOpen(true);
+                      }}
+                      onBlur={() => {
+                        window.setTimeout(() => setProductTierCustomerDropdownOpen(false), 200);
+                      }}
+                      className="w-full pl-9 pr-3 py-2 border border-indigo-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                    />
+                    {productTierCustomerDropdownOpen && productCustomerPriceSearch.trim() !== '' && tierSalesCustomers.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl overscroll-contain">
+                        {tierSalesCustomers.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={`w-full touch-manipulation text-left px-3 py-2.5 text-sm flex justify-between items-center border-b border-gray-100 last:border-0 transition ${customerTierPricePickId === c.id ? 'bg-indigo-100 text-indigo-900 font-bold' : 'hover:bg-gray-50 active:bg-indigo-50'}`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setCustomerTierPricePickId(c.id);
+                              setProductCustomerPriceSearch(c.name);
+                              setProductTierCustomerDropdownOpen(false);
+                            }}
+                          >
+                            <span>{c.name}</span>
+                            <span className="text-xs text-gray-500 shrink-0 ml-2">{c.id}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {productTierCustomerDropdownOpen && productCustomerPriceSearch.trim() !== '' && tierSalesCustomers.length === 0 && (
+                      <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-lg border border-gray-200 bg-white shadow-xl px-3 py-4 text-center text-gray-500 text-sm">
+                        검색 결과가 없습니다.
+                      </div>
+                    )}
+                  </div>
+                  {customerTierPricePickId && (
+                    <p className="text-xs text-indigo-800 font-medium">
+                      선택됨: <span className="font-bold">{customers.find(x => x.id === customerTierPricePickId)?.name || customerTierPricePickId}</span>
+                      <button
+                        type="button"
+                        className="ml-2 text-indigo-600 underline font-bold"
+                        onClick={() => {
+                          setCustomerTierPricePickId('');
+                          setProductCustomerPriceSearch('');
+                        }}
+                      >
+                        선택 해제
+                      </button>
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-end gap-2 pt-1">
+                    <div className="flex-1 min-w-[140px]">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">차등 단가 (원)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={customerTierPriceInput}
+                        onChange={(e) => setCustomerTierPriceInput(e.target.value)}
+                        placeholder="예: 15000"
+                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addTierPriceRow}
+                      className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-sm min-h-[42px] shrink-0 touch-manipulation"
+                    >
+                      추가
+                    </button>
+                  </div>
+                  {productEditForm.customerPrices && Object.keys(productEditForm.customerPrices).length > 0 && (
+                    <ul className="space-y-2 pt-2 border-t border-indigo-200">
+                      {Object.entries(productEditForm.customerPrices).map(([cid, val]) => {
+                        const cust = customers.find(x => x.id === cid);
+                        return (
+                          <li key={cid} className="flex items-center justify-between gap-2 text-sm bg-white/90 rounded-lg px-3 py-2 border border-indigo-100">
+                            <span className="font-medium text-gray-800">{cust ? cust.name : cid}</span>
+                            <span className="flex items-center gap-2 shrink-0">
+                              <span className="font-bold text-indigo-700">₩ {Number(val).toLocaleString()}</span>
+                              <button type="button" onClick={() => removeTierPriceRow(cid)} className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 rounded border border-red-100 bg-red-50">삭제</button>
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               </div>
             ) : (
               <>
@@ -2376,6 +2604,22 @@ export default function WholesalePOS() {
                     <p className="text-sm text-gray-500 mb-1">제조국</p>
                     <p className="font-medium text-gray-900">{selectedProduct.origin || '정보 없음'}</p>
                   </div>
+                  {selectedProduct.customerPrices && Object.keys(selectedProduct.customerPrices).length > 0 && (
+                    <div className="col-span-2 p-4 rounded-xl border border-indigo-100 bg-indigo-50/40">
+                      <p className="text-sm font-bold text-indigo-900 mb-2">업체별 차등 단가</p>
+                      <ul className="space-y-1.5">
+                        {Object.entries(selectedProduct.customerPrices).map(([cid, val]) => {
+                          const cust = customers.find(c => c.id === cid);
+                          return (
+                            <li key={cid} className="flex justify-between text-sm gap-2">
+                              <span className="text-gray-700">{cust ? `${cust.name}` : cid}<span className="text-gray-400 ml-1 text-xs">({cid})</span></span>
+                              <span className="font-bold text-indigo-700 shrink-0">₩ {Number(val).toLocaleString()}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-8 p-4 bg-gray-50 border border-gray-200 rounded-lg flex flex-col gap-4">
@@ -2926,20 +3170,41 @@ export default function WholesalePOS() {
 
   const renderCustomerView = () => {
     const customerListRegex = makeChosungRegex(customerSearchQuery);
+    const toggleCustomerSort = (sortKey) => {
+      setCustomerSort((prev) =>
+        prev.key === sortKey
+          ? { key: sortKey, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+          : { key: sortKey, direction: 'asc' }
+      );
+    };
     const filteredCustomers = customers.filter(c => {
       const isSalesCustomer = !c.type || c.type === '판매처' || c.type === '매출처';
       const typeMatch = customerListTab === '전체' || (customerListTab === '판매처' ? isSalesCustomer : c.type === '매입처');
       const searchMatch = customerListRegex.test(c.name) || c.id.toLowerCase().includes(customerSearchQuery.toLowerCase());
       return typeMatch && searchMatch;
     }).sort((a, b) => {
-      if (customerSortType === 'sales_desc') {
-        const salesA = customerTotalSales[a.name] || 0;
-        const salesB = customerTotalSales[b.name] || 0;
-        return salesB - salesA;
-      } else if (customerSortType === 'balance_desc') {
-        return b.balance - a.balance;
+      const dir = customerSort.direction === 'asc' ? 1 : -1;
+      switch (customerSort.key) {
+        case 'id':
+          return dir * a.id.localeCompare(b.id, undefined, { numeric: true });
+        case 'type': {
+          const rank = (c) => (!c.type || c.type === '판매처' || c.type === '매출처') ? 0 : 1;
+          return dir * (rank(a) - rank(b));
+        }
+        case 'name':
+          return dir * a.name.localeCompare(b.name, 'ko');
+        case 'phone':
+          return dir * String(a.phone ?? '').localeCompare(String(b.phone ?? ''), undefined, { numeric: true });
+        case 'sales': {
+          const salesA = customerTotalSales[a.name] || 0;
+          const salesB = customerTotalSales[b.name] || 0;
+          return dir * (salesA - salesB);
+        }
+        case 'balance':
+          return dir * (a.balance - b.balance);
+        default:
+          return 0;
       }
-      return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
 
     return (
@@ -2954,15 +3219,6 @@ export default function WholesalePOS() {
             </div>
           </div>
           <div className="flex space-x-3 items-center">
-            <select 
-              value={customerSortType}
-              onChange={(e) => setCustomerSortType(e.target.value)}
-              className="p-2 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium bg-white h-[38px]"
-            >
-              <option value="code">등록순 (코드)</option>
-              <option value="sales_desc">누적 거래액 많은 순</option>
-              <option value="balance_desc">보유 잔고 많은 순</option>
-            </select>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
               <input 
@@ -2990,12 +3246,66 @@ export default function WholesalePOS() {
             <table className="w-full text-left relative">
               <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                 <tr>
-                  <th className="p-4 text-sm font-bold text-gray-600">업체코드</th>
-                  <th className="p-4 text-sm font-bold text-gray-600 text-center">구분</th>
-                  <th className="p-4 text-sm font-bold text-gray-600">업체명 (상호)</th>
-                  <th className="p-4 text-sm font-bold text-gray-600">연락처</th>
-                  <th className="p-4 text-sm font-bold text-gray-600">누적 거래액</th>
-                  <th className="p-4 text-sm font-bold text-gray-600">보유 잔고 (예치금)</th>
+                  <th
+                    scope="col"
+                    onClick={() => toggleCustomerSort('id')}
+                    className={`p-4 text-sm font-bold text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors ${customerSort.key === 'id' ? 'text-blue-700' : ''}`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      업체코드
+                      {customerSort.key === 'id' && (customerSort.direction === 'asc' ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />)}
+                    </span>
+                  </th>
+                  <th
+                    scope="col"
+                    onClick={() => toggleCustomerSort('type')}
+                    className={`p-4 text-sm font-bold text-gray-600 text-center cursor-pointer select-none hover:bg-gray-100 transition-colors ${customerSort.key === 'type' ? 'text-blue-700' : ''}`}
+                  >
+                    <span className="inline-flex items-center justify-center gap-1 w-full">
+                      구분
+                      {customerSort.key === 'type' && (customerSort.direction === 'asc' ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />)}
+                    </span>
+                  </th>
+                  <th
+                    scope="col"
+                    onClick={() => toggleCustomerSort('name')}
+                    className={`p-4 text-sm font-bold text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors ${customerSort.key === 'name' ? 'text-blue-700' : ''}`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      업체명 (상호)
+                      {customerSort.key === 'name' && (customerSort.direction === 'asc' ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />)}
+                    </span>
+                  </th>
+                  <th
+                    scope="col"
+                    onClick={() => toggleCustomerSort('phone')}
+                    className={`p-4 text-sm font-bold text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors ${customerSort.key === 'phone' ? 'text-blue-700' : ''}`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      연락처
+                      {customerSort.key === 'phone' && (customerSort.direction === 'asc' ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />)}
+                    </span>
+                  </th>
+                  <th
+                    scope="col"
+                    onClick={() => toggleCustomerSort('sales')}
+                    className={`p-4 text-sm font-bold text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors ${customerSort.key === 'sales' ? 'text-blue-700' : ''}`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      누적 거래액
+                      {customerSort.key === 'sales' && (customerSort.direction === 'asc' ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />)}
+                    </span>
+                  </th>
+                  <th
+                    scope="col"
+                    onClick={() => toggleCustomerSort('balance')}
+                    className={`p-4 text-sm font-bold text-gray-600 cursor-pointer select-none hover:bg-gray-100 transition-colors ${customerSort.key === 'balance' ? 'text-blue-700' : ''}`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      보유 잔고 (예치금)
+                      {customerSort.key === 'balance' && (customerSort.direction === 'asc' ? <ChevronUp size={16} className="shrink-0" /> : <ChevronDown size={16} className="shrink-0" />)}
+                    </span>
+                  </th>
                   <th className="p-4 text-sm font-bold text-gray-600 text-center">관리</th>
                 </tr>
               </thead>
