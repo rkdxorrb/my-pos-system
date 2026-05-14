@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { 
   Home, ShoppingCart, Package, Users, FileText, 
   DollarSign, Clock, Search, Plus, Minus, Trash2, 
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, Tag, Upload,
   ChevronUp, ChevronDown, Inbox, Printer, X, CalendarDays, List,
-  Wallet, Megaphone, Bell, ArrowUp 
+  Wallet, Megaphone, Bell, ArrowUp, GripVertical
 } from 'lucide-react';
 
 // Firebase 연동 모듈
@@ -104,6 +104,7 @@ const MENU_CONFIG = {
   dashboard: { label: '메인화면 (현황)', Icon: Home },
   sales: { label: '판매 / 반품', Icon: ShoppingCart },
   salesReport: { label: '매출 현황', Icon: TrendingUp },
+  productStats: { label: '상품 통계', Icon: BarChart },
   inventory: { label: '상품 관리', Icon: Package },
   restockHistory: { label: '입고 내역', Icon: Inbox },
   customers: { label: '업체 내역', Icon: Users },
@@ -111,6 +112,115 @@ const MENU_CONFIG = {
   misong: { label: '미송 / 샘플 내역', Icon: FileText },
   cash: { label: '시재 관리', Icon: Wallet },
   notice: { label: '공지사항', Icon: Megaphone },
+};
+
+const DropIndicatorLine = () => (
+  <div
+    className="pointer-events-none relative z-10 my-0.5 h-1 w-full rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(255,255,255,0.9),0_0_12px_rgba(37,99,235,0.65)]"
+    aria-hidden
+  />
+);
+
+const MenuOrderDragList = ({ menuOrder, setMenuOrder }) => {
+  const [dragFrom, setDragFrom] = useState(null);
+  const [insertBeforeK, setInsertBeforeK] = useState(null);
+  const listRef = useRef(null);
+  const dragFromRef = useRef(null);
+  const insertKRef = useRef(null);
+
+  const resetDrag = () => {
+    dragFromRef.current = null;
+    insertKRef.current = null;
+    setDragFrom(null);
+    setInsertBeforeK(null);
+  };
+
+  const handleDragStart = (e, index) => {
+    dragFromRef.current = index;
+    insertKRef.current = index;
+    setDragFrom(index);
+    setInsertBeforeK(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleListDragOverCapture = (e) => {
+    if (dragFromRef.current === null || !listRef.current) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rows = listRef.current.querySelectorAll('[data-menu-order-row]');
+    const y = e.clientY;
+    let k = menuOrder.length;
+    for (let i = 0; i < rows.length; i++) {
+      const rect = rows[i].getBoundingClientRect();
+      if (y < rect.top + rect.height / 2) {
+        k = i;
+        break;
+      }
+    }
+    if (rows.length) {
+      const lastRect = rows[rows.length - 1].getBoundingClientRect();
+      if (y >= lastRect.top + lastRect.height / 2) k = menuOrder.length;
+    }
+    insertKRef.current = k;
+    setInsertBeforeK(k);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const from = dragFromRef.current;
+    const k = insertKRef.current;
+    if (from === null) {
+      resetDrag();
+      return;
+    }
+    const next = [...menuOrder];
+    const [it] = next.splice(from, 1);
+    const f = from < k ? k - 1 : k;
+    next.splice(f, 0, it);
+    setMenuOrder(next);
+    resetDrag();
+  };
+
+  const handleDragEnd = () => {
+    resetDrag();
+  };
+
+  return (
+    <div
+      ref={listRef}
+      className="mt-2 divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white"
+      onDragOverCapture={handleListDragOverCapture}
+      onDrop={handleDrop}
+    >
+      {menuOrder.map((menuId, index) => {
+        const { label, Icon } = MENU_CONFIG[menuId];
+        const isDragging = dragFrom === index;
+        return (
+          <Fragment key={menuId}>
+            {dragFrom !== null && insertBeforeK === index ? <DropIndicatorLine /> : null}
+            <div
+              data-menu-order-row
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragEnd={handleDragEnd}
+              className={`flex cursor-grab select-none items-center justify-between bg-gray-50 px-3 py-3.5 transition-[opacity,box-shadow,border-color] active:cursor-grabbing ${
+                isDragging ? 'bg-blue-50/70 opacity-45 shadow-inner ring-1 ring-inset ring-blue-200/80' : 'hover:bg-gray-100'
+              }`}
+            >
+              <div className="flex min-w-0 flex-1 items-center">
+                <GripVertical className="mr-2 shrink-0 text-gray-400" size={18} aria-hidden />
+                <span className="w-10 shrink-0 text-lg font-black text-blue-600">F{index + 1}</span>
+                <Icon className="mr-3 shrink-0 text-gray-600" size={20} />
+                <span className="truncate font-bold text-gray-800">{label}</span>
+              </div>
+            </div>
+          </Fragment>
+        );
+      })}
+      {dragFrom !== null && insertBeforeK === menuOrder.length ? <DropIndicatorLine /> : null}
+    </div>
+  );
 };
 
 const LoginView = ({ onLogin, showAlert }) => {
@@ -228,6 +338,7 @@ export default function WholesalePOS() {
   const today = getTodayStr();
   const [reportDate, setReportDate] = useState(today);
   const [reportMonth, setReportMonth] = useState(today.substring(0, 7));
+  const [productStatsMonth, setProductStatsMonth] = useState(() => getTodayStr().substring(0, 7));
   const [salesReportTab, setSalesReportTab] = useState('daily'); 
   const [salesReportSort, setSalesReportSort] = useState({ key: 'date', direction: 'desc' });
   
@@ -286,6 +397,7 @@ export default function WholesalePOS() {
       setTransactionDate(getDefaultTransactionDateStr());
       setReportDate(getTodayStr());
       setReportMonth(getTodayStr().substring(0, 7));
+      setProductStatsMonth(getTodayStr().substring(0, 7));
       setRestockSearchDate(getTodayStr());
       setRestockSearchMonth(getTodayStr().substring(0, 7));
       setRestockViewType('daily');
@@ -359,8 +471,14 @@ export default function WholesalePOS() {
   const renderModal = () => {
     if (!modalConfig.isOpen) return null;
     return (
-      <div className="fixed inset-0 bg-white/40 backdrop-blur-md flex items-center justify-center z-[100]">
-        <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 transform transition-all">
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-white/40 backdrop-blur-md"
+        onClick={closeModal}
+      >
+        <div
+          className="mx-4 w-full max-w-sm transform rounded-xl bg-white p-6 shadow-2xl transition-all"
+          onClick={(e) => e.stopPropagation()}
+        >
           <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center">
             {modalConfig.type === 'confirm' ? <AlertCircle className="mr-2 text-blue-500" size={20} /> : <CheckCircle className="mr-2 text-green-500" size={20} />}
             {modalConfig.type === 'confirm' ? '확인' : '알림'}
@@ -423,6 +541,41 @@ export default function WholesalePOS() {
       return log.type === '입금' ? acc + log.amount : acc - log.amount;
     }, 0);
   }, [cashLogs]);
+
+  const productStatsTop10 = useMemo(() => {
+    const qtyByProductId = {};
+    const fallbackLabel = {};
+    dailySales.forEach((sale) => {
+      if (sale.type !== '판매') return;
+      if (!sale.date || !sale.date.startsWith(productStatsMonth)) return;
+      const lineItems = sale.items;
+      if (!Array.isArray(lineItems)) return;
+      lineItems.forEach((item) => {
+        const pid = item.id;
+        if (!pid) return;
+        qtyByProductId[pid] = (qtyByProductId[pid] || 0) + (Number(item.qty) || 0);
+        if (!fallbackLabel[pid]) {
+          fallbackLabel[pid] = {
+            name: item.name != null ? String(item.name) : '',
+            color: item.color != null ? String(item.color) : '',
+          };
+        }
+      });
+    });
+    return Object.entries(qtyByProductId)
+      .map(([productId, qty]) => {
+        const p = products.find((pr) => pr.id === productId);
+        const fb = fallbackLabel[productId] || { name: '', color: '' };
+        return {
+          productId,
+          qty,
+          displayName: p?.name || fb.name || '(미등록·삭제됨)',
+          displayColor: p?.color || fb.color || '—',
+        };
+      })
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 10);
+  }, [dailySales, products, productStatsMonth]);
 
   const handleGoToProductDetail = (p, editMode = false) => {
     setSelectedProduct(p);
@@ -803,96 +956,100 @@ export default function WholesalePOS() {
     });
   };
 
-  const handleCancelSale = (saleId) => {
-    showConfirm("정말 삭제하시겠습니까?\n(관련된 재고, 월별 매출, 고객 잔고가 자동 복구되며, 포함된 미송 내역도 함께 삭제됩니다.)", () => {
-      const sale = dailySales.find(s => s.id === saleId);
-      if (!sale) return;
+  const performCancelSale = (saleId) => {
+    const sale = dailySales.find(s => s.id === saleId);
+    if (!sale) return;
 
-      setDailySales(prev => prev.filter(s => s.id !== saleId));
-      deleteItem('dailySales', saleId); 
+    setDailySales(prev => prev.filter(s => s.id !== saleId));
+    deleteItem('dailySales', saleId);
 
-      let updatedProducts = [...products];
-      
-      if (sale.items && sale.items.length > 0) {
-        sale.items.forEach(item => {
-          const pIdx = updatedProducts.findIndex(p => p.id === item.id);
-          if (pIdx !== -1) {
-            const stockDelta = sale.type === '판매' ? (item.deductedStock ?? item.qty) : -item.qty;
-            updatedProducts[pIdx].stock = Math.max(0, updatedProducts[pIdx].stock + stockDelta);
-            saveItem('products', updatedProducts[pIdx]); 
-          }
-        });
-      }
+    let updatedProducts = [...products];
 
-      if (sale.type === '판매') {
-        const relatedMisongs = misongList.filter(m => 
-          m.transactionId === saleId || 
-          (!m.transactionId && m.date === sale.date && m.customerName === sale.customerName && sale.items?.find(i => i.id === m.productId) && m.id.startsWith('M_AUTO_'))
-        );
-
-        let remainingMisongs = [...misongList];
-        relatedMisongs.forEach(m => {
-          if (m.savedShippedQty > 0) {
-            const pIdx = updatedProducts.findIndex(p => p.id === m.productId);
-            if (pIdx !== -1) {
-              updatedProducts[pIdx].stock += m.savedShippedQty;
-              saveItem('products', updatedProducts[pIdx]);
-            }
-          }
-          deleteItem('misong', m.id);
-          remainingMisongs = remainingMisongs.filter(rm => rm.id !== m.id);
-        });
-        setMisongList(remainingMisongs);
-      }
-
-      setProducts(updatedProducts);
-
-      setMonthlySales(prev => {
-        const nextState = [];
-        prev.forEach(m => {
-          if (m.date === sale.date) {
-            let newM = { ...m };
-            if (sale.type === '판매') {
-              const saleAmount = Math.abs(sale.actualPayment ?? sale.total) + (sale.appliedBalance || 0);
-              newM.sales = Math.max(0, m.sales - saleAmount);
-              newM.netSales = m.netSales - saleAmount;
-              newM.count = Math.max(0, m.count - 1);
-            } else {
-              const returnAmount = sale.appliedBalance > 0 ? sale.appliedBalance : Math.abs(sale.actualPayment ?? sale.total);
-              newM.returns = Math.max(0, m.returns - returnAmount);
-              newM.netSales = m.netSales + returnAmount;
-            }
-            
-            if (newM.sales === 0 && newM.returns === 0 && newM.count === 0) {
-              deleteItem('monthlySales', newM.date);
-            } else {
-              saveItem('monthlySales', newM);
-              nextState.push(newM);
-            }
-          } else {
-            nextState.push(m);
-          }
-        });
-        return nextState;
+    if (sale.items && sale.items.length > 0) {
+      sale.items.forEach(item => {
+        const pIdx = updatedProducts.findIndex(p => p.id === item.id);
+        if (pIdx !== -1) {
+          const stockDelta = sale.type === '판매' ? (item.deductedStock ?? item.qty) : -item.qty;
+          updatedProducts[pIdx].stock = Math.max(0, updatedProducts[pIdx].stock + stockDelta);
+          saveItem('products', updatedProducts[pIdx]);
+        }
       });
+    }
 
-      setCustomers(prev => prev.map(c => {
-        if (c.name === sale.customerName) {
-          let newC;
+    if (sale.type === '판매') {
+      const relatedMisongs = misongList.filter(m =>
+        m.transactionId === saleId ||
+        (!m.transactionId && m.date === sale.date && m.customerName === sale.customerName && sale.items?.find(i => i.id === m.productId) && m.id.startsWith('M_AUTO_'))
+      );
+
+      let remainingMisongs = [...misongList];
+      relatedMisongs.forEach(m => {
+        if (m.savedShippedQty > 0) {
+          const pIdx = updatedProducts.findIndex(p => p.id === m.productId);
+          if (pIdx !== -1) {
+            updatedProducts[pIdx].stock += m.savedShippedQty;
+            saveItem('products', updatedProducts[pIdx]);
+          }
+        }
+        deleteItem('misong', m.id);
+        remainingMisongs = remainingMisongs.filter(rm => rm.id !== m.id);
+      });
+      setMisongList(remainingMisongs);
+    }
+
+    setProducts(updatedProducts);
+
+    setMonthlySales(prev => {
+      const nextState = [];
+      prev.forEach(m => {
+        if (m.date === sale.date) {
+          let newM = { ...m };
           if (sale.type === '판매') {
-            newC = { ...c, balance: c.balance + (sale.appliedBalance || 0) }; 
+            const saleAmount = Math.abs(sale.actualPayment ?? sale.total) + (sale.appliedBalance || 0);
+            newM.sales = Math.max(0, m.sales - saleAmount);
+            newM.netSales = m.netSales - saleAmount;
+            newM.count = Math.max(0, m.count - 1);
           } else {
             const returnAmount = sale.appliedBalance > 0 ? sale.appliedBalance : Math.abs(sale.actualPayment ?? sale.total);
-            newC = { ...c, balance: Math.max(0, c.balance - returnAmount) };
+            newM.returns = Math.max(0, m.returns - returnAmount);
+            newM.netSales = m.netSales + returnAmount;
           }
-          saveItem('customers', newC); 
-          return newC;
-        }
-        return c;
-      }));
 
-      if(saleDetailModal && saleDetailModal.id === saleId) setSaleDetailModal(null);
-      showAlert("거래 내역이 성공적으로 삭제(취소)되었습니다.\n(고객 잔고 및 재고에 해당 내용이 복구 반영되었습니다.)");
+          if (newM.sales === 0 && newM.returns === 0 && newM.count === 0) {
+            deleteItem('monthlySales', newM.date);
+          } else {
+            saveItem('monthlySales', newM);
+            nextState.push(newM);
+          }
+        } else {
+          nextState.push(m);
+        }
+      });
+      return nextState;
+    });
+
+    setCustomers(prev => prev.map(c => {
+      if (c.name === sale.customerName) {
+        let newC;
+        if (sale.type === '판매') {
+          newC = { ...c, balance: c.balance + (sale.appliedBalance || 0) };
+        } else {
+          const returnAmount = sale.appliedBalance > 0 ? sale.appliedBalance : Math.abs(sale.actualPayment ?? sale.total);
+          newC = { ...c, balance: Math.max(0, c.balance - returnAmount) };
+        }
+        saveItem('customers', newC);
+        return newC;
+      }
+      return c;
+    }));
+
+    if (saleDetailModal && saleDetailModal.id === saleId) setSaleDetailModal(null);
+    showAlert("거래 내역이 성공적으로 삭제(취소)되었습니다.\n(고객 잔고 및 재고에 해당 내용이 복구 반영되었습니다.)");
+  };
+
+  const handleCancelSale = (saleId) => {
+    showConfirm("정말 삭제하시겠습니까?\n(관련된 재고, 월별 매출, 고객 잔고가 자동 복구되며, 포함된 미송 내역도 함께 삭제됩니다.)", () => {
+      performCancelSale(saleId);
     });
   };
 
@@ -904,7 +1061,7 @@ export default function WholesalePOS() {
     
     showConfirm(`[${itemToDelete.name}] 상품만 구매 내역에서 부분 취소(삭제)하시겠습니까?\n해당 금액만큼 재고, 매출, 고객 잔고가 복구 수정됩니다.`, () => {
       if (sale.items.length === 1) {
-        handleCancelSale(saleId);
+        performCancelSale(saleId);
         return;
       }
 
@@ -1100,20 +1257,6 @@ export default function WholesalePOS() {
   };
 
   const renderSettingsView = () => {
-    const moveUp = (index) => {
-      if (index === 0) return;
-      const newOrder = [...menuOrder];
-      [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
-      setMenuOrder(newOrder);
-    };
-
-    const moveDown = (index) => {
-      if (index === menuOrder.length - 1) return;
-      const newOrder = [...menuOrder];
-      [newOrder[index + 1], newOrder[index]] = [newOrder[index], newOrder[index + 1]];
-      setMenuOrder(newOrder);
-    };
-
     const handleReceiptCountChange = (count) => {
       setReceiptPrintCount(count);
       localStorage.setItem('receiptPrintCount', count.toString());
@@ -1170,25 +1313,13 @@ export default function WholesalePOS() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl">
           <h3 className="text-lg font-bold text-gray-800 mb-4">메인 메뉴 순서 변경</h3>
-          <p className="text-sm text-gray-500 mb-4">위/아래 버튼을 눌러 왼쪽 메뉴의 우선순위를 변경할 수 있습니다.<br/>순서에 따라 키보드 최상단 <b className="text-blue-600">F1 ~ F12</b> 단축키가 자동 할당됩니다.</p>
-          <div className="space-y-2 mt-6">
-            {menuOrder.map((menuId, index) => {
-              const { label, Icon } = MENU_CONFIG[menuId];
-              return (
-                <div key={menuId} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50 hover:bg-gray-100 transition">
-                  <div className="flex items-center">
-                    <span className="w-10 font-black text-blue-600 text-lg">F{index + 1}</span>
-                    <Icon className="mr-3 text-gray-600" size={20} />
-                    <span className="font-bold text-gray-800">{label}</span>
-                  </div>
-                  <div className="flex space-x-1">
-                    <button onClick={() => moveUp(index)} disabled={index === 0} className="p-2 bg-white border rounded shadow-sm hover:bg-gray-50 disabled:opacity-30 transition"><ChevronUp size={16} className="text-gray-700"/></button>
-                    <button onClick={() => moveDown(index)} disabled={index === menuOrder.length - 1} className="p-2 bg-white border rounded shadow-sm hover:bg-gray-50 disabled:opacity-30 transition"><ChevronDown size={16} className="text-gray-700"/></button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <p className="text-sm text-gray-500 mb-1">
+            항목을 <b className="text-gray-800">드래그하여 놓으면</b> 순서가 바뀝니다. 드래그 중 <b className="text-blue-600">파란 선</b>은 놓았을 때 메뉴가 들어갈 위치를 미리 보여 줍니다.
+          </p>
+          <p className="text-sm text-gray-500 mb-4">
+            순서에 따라 키보드 최상단 <b className="text-blue-600">F1 ~ F12</b> 단축키가 자동 할당됩니다.
+          </p>
+          <MenuOrderDragList menuOrder={menuOrder} setMenuOrder={setMenuOrder} />
         </div>
       </div>
     );
@@ -1299,6 +1430,10 @@ export default function WholesalePOS() {
   };
 
   const handleAddToCart = (product) => {
+    if (!selectedCustomer) {
+      showAlert('거래처를 먼저 선택해주세요.');
+      return;
+    }
     const savedTop = mainScrollRef.current?.scrollTop ?? 0;
     const activePrice = resolveProductUnitPrice(product, selectedCustomer);
     const usesTier = productUsesCustomerPrice(product, selectedCustomer);
@@ -3168,6 +3303,108 @@ export default function WholesalePOS() {
     );
   };
 
+  const renderProductStatsView = () => {
+    const maxQty = productStatsTop10.length ? productStatsTop10[0].qty : 1;
+    const barPalette = [
+      'bg-blue-600',
+      'bg-blue-500',
+      'bg-indigo-600',
+      'bg-indigo-500',
+      'bg-violet-600',
+      'bg-violet-500',
+      'bg-sky-600',
+      'bg-sky-500',
+      'bg-cyan-600',
+      'bg-cyan-500',
+    ];
+
+    return (
+      <div className="p-6 h-full flex flex-col overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6 shrink-0">
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
+            <BarChart className="mr-2 text-blue-600" size={28} />
+            상품 통계
+          </h2>
+          <div className="flex items-center space-x-3 bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+            <span className="text-sm font-bold text-gray-700">기준 월</span>
+            <input
+              type="month"
+              value={productStatsMonth}
+              onChange={(e) => setProductStatsMonth(e.target.value)}
+              className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
+            />
+            <button
+              type="button"
+              onClick={() => setProductStatsMonth(getTodayStr().substring(0, 7))}
+              className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition shadow-sm"
+            >
+              이번 달
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="p-4 border-b bg-gray-50 shrink-0">
+            <p className="text-sm text-gray-600">
+              선택한 달의 <span className="font-bold text-gray-800">판매(결제)</span> 건 기준, 상품코드별 판매 수량 합계 상위 10위입니다. 이름·색상은 상품 관리의 현재 정보를 따릅니다.
+            </p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5" onScroll={handleContainerScroll} ref={mainScrollRef}>
+            {productStatsTop10.length === 0 ? (
+              <div className="py-16 text-center text-gray-500 text-sm">
+                해당 월에 집계할 판매 내역(라인 품목)이 없습니다.
+              </div>
+            ) : (
+              <div className="flex w-full flex-row items-stretch justify-between gap-1 overflow-x-auto px-1 pb-4 pt-10 sm:gap-2 sm:px-2 sm:pt-14">
+                {productStatsTop10.map((row, idx) => {
+                  const pct = maxQty > 0 ? Math.round((row.qty / maxQty) * 1000) / 10 : 0;
+                  const barClass = barPalette[idx] ?? 'bg-gray-500';
+                  return (
+                    <div
+                      key={row.productId}
+                      className="flex min-w-[4.25rem] w-0 flex-1 flex-col items-stretch sm:min-w-[5.25rem]"
+                    >
+                      <div className="flex min-h-[15rem] flex-1 flex-col justify-end sm:min-h-[17rem]">
+                        <div className="mx-auto flex h-52 w-full max-w-[3.25rem] items-end justify-center overflow-hidden rounded-t-md bg-gray-200/80 sm:h-60 sm:max-w-[4rem]">
+                          <div
+                            className={`w-[72%] rounded-t-md ${barClass} transition-all duration-500`}
+                            style={{ height: `${pct}%`, minHeight: pct > 0 ? 4 : 0 }}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-col items-center gap-0.5 text-center">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-[10px] font-black text-white">
+                          {idx + 1}
+                        </span>
+                        <div
+                          className="line-clamp-2 w-full px-0.5 text-[10px] font-bold leading-tight text-gray-900 sm:text-xs"
+                          title={`${row.displayName} · ${row.displayColor}`}
+                        >
+                          {row.displayName}
+                        </div>
+                        <div
+                          className="line-clamp-2 w-full px-0.5 text-[11px] font-extrabold leading-snug tracking-tight text-slate-800 sm:text-sm sm:leading-snug"
+                          title={row.displayColor}
+                        >
+                          {row.displayColor}
+                        </div>
+                        <div className="font-mono text-[9px] text-gray-400">{row.productId}</div>
+                        <div className="text-[10px] font-black text-blue-600 sm:text-xs tabular-nums">
+                          {row.qty}
+                          <span className="font-bold text-gray-600">장</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderCustomerView = () => {
     const customerListRegex = makeChosungRegex(customerSearchQuery);
     const toggleCustomerSort = (sortKey) => {
@@ -4146,6 +4383,7 @@ export default function WholesalePOS() {
       case 'dashboard': return renderDashboardView();
       case 'sales': return renderSalesView();
       case 'salesReport': return renderSalesReportView();
+      case 'productStats': return renderProductStatsView();
       case 'inventory': return renderInventoryView();
       case 'productDetail': return renderProductDetailView();
       case 'addProduct': return renderAddProductView();
@@ -4314,7 +4552,7 @@ export default function WholesalePOS() {
           </header>
 
           <main key={activeMenu} className="flex-1 overflow-hidden bg-gray-50 flex flex-col relative z-0">
-            {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice'].includes(activeMenu) && (
+            {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'productStats', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice'].includes(activeMenu) && (
               <div className="px-6 pt-6 pb-2 shrink-0">
                 <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
                   <ArrowLeft size={16} className="mr-1"/> 뒤로가기
@@ -4335,11 +4573,11 @@ export default function WholesalePOS() {
         </div>
       </div>
       
-      {/* 팝업 모달을 로그인 상태에 관계없이 항상 최상단에 렌더링되도록 수정 */}
-      {renderModal()}
-      
-      {/* 상세 거래 내역 모달 */}
+      {/* 상세 거래 내역 모달 (전역 알림/확인보다 아래 z-index) */}
       {renderSaleDetailModal()}
+      
+      {/* 팝업 모달: 다른 오버레이 위에 표시되도록 마지막 렌더 + 높은 z-index */}
+      {renderModal()}
     </>
   );
 }
