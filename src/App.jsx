@@ -72,6 +72,75 @@ const getDefaultTransactionDateStr = () => {
   return `${y}-${m}-${dd}`;
 };
 
+const getMonthStrOffset = (offsetMonths) => {
+  const today = getTodayStr();
+  const [y, m] = today.split('-').map(Number);
+  const d = new Date(y, m - 1 + offsetMonths, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getLastMonthStr = () => getMonthStrOffset(-1);
+
+const shiftMonthStr = (monthStr, offsetMonths) => {
+  const [y, m] = monthStr.split('-').map(Number);
+  const d = new Date(y, m - 1 + offsetMonths, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const getFirstDayOfMonthStr = (monthStr) => `${monthStr}-01`;
+
+const getLineItemProductId = (item) => item?.id ?? item?.productId ?? '';
+
+const findProductById = (products, productId) =>
+  productId ? products.find((p) => p.id === productId) : undefined;
+
+const syncLineItemWithProduct = (item, product) => {
+  if (!item || !product) return item;
+  return { ...item, name: product.name, color: product.color, size: product.size };
+};
+
+const formatProductLineSummary = (item) => {
+  if (!item) return '';
+  return `${item.name} (${item.color}/${item.size})`;
+};
+
+const buildSaleProductNameFromItems = (items) => {
+  if (!items?.length) return '';
+  if (items.length === 1) return formatProductLineSummary(items[0]);
+  return `${formatProductLineSummary(items[0])} 외 ${items.length - 1}건`;
+};
+
+const resolveLineItemDisplay = (products, item) => {
+  const product = findProductById(products, getLineItemProductId(item));
+  return {
+    name: product?.name ?? item?.name ?? '(미등록·삭제됨)',
+    color: product?.color ?? item?.color ?? '—',
+    size: product?.size ?? item?.size ?? '—',
+  };
+};
+
+const getSaleDisplayProductName = (products, sale) => {
+  if (sale?.items?.length) {
+    const syncedItems = sale.items.map((item) => {
+      const product = findProductById(products, getLineItemProductId(item));
+      return product ? syncLineItemWithProduct(item, product) : item;
+    });
+    return buildSaleProductNameFromItems(syncedItems);
+  }
+  return sale?.productName ?? '';
+};
+
+const getMisongSampleProductName = (products, record) => {
+  const product = findProductById(products, record?.productId);
+  if (product) return `${product.name} (${product.color}/${product.size})`;
+  return record?.productName ?? '';
+};
+
+const getRestockProductName = (products, log) => {
+  const product = findProductById(products, log?.productId);
+  return product?.name ?? log?.productName ?? '';
+};
+
 const makeChosungRegex = (searchWord) => {
   if (!searchWord) return new RegExp('');
   const CHOSUNG = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
@@ -338,7 +407,8 @@ export default function WholesalePOS() {
   const today = getTodayStr();
   const [reportDate, setReportDate] = useState(today);
   const [reportMonth, setReportMonth] = useState(today.substring(0, 7));
-  const [productStatsMonth, setProductStatsMonth] = useState(() => getTodayStr().substring(0, 7));
+  const [productStatsRangeStart, setProductStatsRangeStart] = useState(() => getFirstDayOfMonthStr(getTodayStr().substring(0, 7)));
+  const [productStatsRangeEnd, setProductStatsRangeEnd] = useState(() => getTodayStr());
   const [salesReportTab, setSalesReportTab] = useState('daily'); 
   const [salesReportSort, setSalesReportSort] = useState({ key: 'date', direction: 'desc' });
   
@@ -383,6 +453,53 @@ export default function WholesalePOS() {
     if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const syncProductLabelsAcrossRecords = (productId, product) => {
+    const misongSampleLabel = `${product.name} (${product.color}/${product.size})`;
+
+    let salesChanged = false;
+    const updatedDailySales = dailySales.map((sale) => {
+      if (!sale.items?.some((i) => getLineItemProductId(i) === productId)) return sale;
+      salesChanged = true;
+      const newItems = sale.items.map((item) =>
+        getLineItemProductId(item) === productId ? syncLineItemWithProduct(item, product) : item
+      );
+      const newSale = { ...sale, items: newItems, productName: buildSaleProductNameFromItems(newItems) };
+      saveItem('dailySales', newSale);
+      return newSale;
+    });
+    if (salesChanged) setDailySales(updatedDailySales);
+
+    let misongChanged = false;
+    const updatedMisong = misongList.map((m) => {
+      if (m.productId !== productId) return m;
+      misongChanged = true;
+      const newM = { ...m, productName: misongSampleLabel };
+      saveItem('misong', newM);
+      return newM;
+    });
+    if (misongChanged) setMisongList(updatedMisong);
+
+    let sampleChanged = false;
+    const updatedSample = sampleList.map((s) => {
+      if (s.productId !== productId) return s;
+      sampleChanged = true;
+      const newS = { ...s, productName: misongSampleLabel };
+      saveItem('samples', newS);
+      return newS;
+    });
+    if (sampleChanged) setSampleList(updatedSample);
+
+    let restockChanged = false;
+    const updatedRestock = restockHistory.map((r) => {
+      if (r.productId !== productId) return r;
+      restockChanged = true;
+      const newR = { ...r, productName: product.name, color: product.color, size: product.size };
+      saveItem('restockHistory', newR);
+      return newR;
+    });
+    if (restockChanged) setRestockHistory(updatedRestock);
+  };
+
   const navigateTo = (menuId, isMainNav = false) => {
     if (isMainNav) {
       setSalesSearchQuery('');
@@ -397,7 +514,8 @@ export default function WholesalePOS() {
       setTransactionDate(getDefaultTransactionDateStr());
       setReportDate(getTodayStr());
       setReportMonth(getTodayStr().substring(0, 7));
-      setProductStatsMonth(getTodayStr().substring(0, 7));
+      setProductStatsRangeStart(getFirstDayOfMonthStr(getTodayStr().substring(0, 7)));
+      setProductStatsRangeEnd(getTodayStr());
       setRestockSearchDate(getTodayStr());
       setRestockSearchMonth(getTodayStr().substring(0, 7));
       setRestockViewType('daily');
@@ -545,9 +663,17 @@ export default function WholesalePOS() {
   const productStatsTop10 = useMemo(() => {
     const qtyByProductId = {};
     const fallbackLabel = {};
+    if (!productStatsRangeStart || !productStatsRangeEnd) {
+      return [];
+    }
+    const rangeFrom =
+      productStatsRangeStart <= productStatsRangeEnd ? productStatsRangeStart : productStatsRangeEnd;
+    const rangeTo =
+      productStatsRangeEnd >= productStatsRangeStart ? productStatsRangeEnd : productStatsRangeStart;
     dailySales.forEach((sale) => {
       if (sale.type !== '판매') return;
-      if (!sale.date || !sale.date.startsWith(productStatsMonth)) return;
+      if (!sale.date) return;
+      if (sale.date < rangeFrom || sale.date > rangeTo) return;
       const lineItems = sale.items;
       if (!Array.isArray(lineItems)) return;
       lineItems.forEach((item) => {
@@ -575,7 +701,7 @@ export default function WholesalePOS() {
       })
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 10);
-  }, [dailySales, products, productStatsMonth]);
+  }, [dailySales, products, productStatsRangeStart, productStatsRangeEnd]);
 
   const handleGoToProductDetail = (p, editMode = false) => {
     setSelectedProduct(p);
@@ -1058,8 +1184,9 @@ export default function WholesalePOS() {
     if (!sale) return;
 
     const itemToDelete = sale.items[itemIndex];
+    const itemToDeleteDisplay = resolveLineItemDisplay(products, itemToDelete);
     
-    showConfirm(`[${itemToDelete.name}] 상품만 구매 내역에서 부분 취소(삭제)하시겠습니까?\n해당 금액만큼 재고, 매출, 고객 잔고가 복구 수정됩니다.`, () => {
+    showConfirm(`[${itemToDeleteDisplay.name}] 상품만 구매 내역에서 부분 취소(삭제)하시겠습니까?\n해당 금액만큼 재고, 매출, 고객 잔고가 복구 수정됩니다.`, () => {
       if (sale.items.length === 1) {
         performCancelSale(saleId);
         return;
@@ -1093,10 +1220,11 @@ export default function WholesalePOS() {
       
       let newSale = { ...sale, items: [...sale.items] };
       newSale.items.splice(itemIndex, 1);
-      
-      newSale.productName = newSale.items.length === 1 
-        ? `${newSale.items[0].name} (${newSale.items[0].color}/${newSale.items[0].size})` 
-        : `${newSale.items[0].name} 외 ${newSale.items.length - 1}건`;
+      newSale.items = newSale.items.map((item) => {
+        const p = findProductById(products, getLineItemProductId(item));
+        return p ? syncLineItemWithProduct(item, p) : item;
+      });
+      newSale.productName = buildSaleProductNameFromItems(newSale.items);
         
       newSale.qty -= itemToDelete.qty;
       
@@ -2461,10 +2589,20 @@ export default function WholesalePOS() {
           updated.isEnded = false; 
       }
 
+      const labelFieldsChanged =
+        selectedProduct.name !== updated.name ||
+        selectedProduct.color !== updated.color ||
+        selectedProduct.size !== updated.size;
+
       setProducts(products.map(p => p.id === updated.id ? updated : p));
-      saveItem('products', updated); 
+      saveItem('products', updated);
       setSelectedProduct(updated);
       setProductDetailEditMode(false);
+
+      if (labelFieldsChanged) {
+        syncProductLabelsAcrossRecords(updated.id, updated);
+      }
+
       showAlert('상품 정보가 성공적으로 수정되었습니다.');
     };
 
@@ -2860,7 +2998,7 @@ export default function WholesalePOS() {
         {restockViewType === 'daily' ? (() => {
           const filteredHistory = restockHistory.filter(h => 
             h.date === restockSearchDate &&
-            (restockRegex.test(h.productName) || (h.supplier && restockRegex.test(h.supplier)))
+            (restockRegex.test(getRestockProductName(products, h)) || (h.supplier && restockRegex.test(h.supplier)))
           );
           const dailyTotalRestockQty = filteredHistory.reduce((sum, item) => sum + item.qty, 0);
           
@@ -2907,9 +3045,11 @@ export default function WholesalePOS() {
                           const prod = products.find(p => p.id === log.productId);
                           if (prod) { handleGoToProductDetail(prod); }
                         }}>
-                          {log.productName}
+                          {getRestockProductName(products, log)}
                         </td>
-                        <td className="p-4 text-sm text-gray-600">{log.color} / {log.size}</td>
+                        <td className="p-4 text-sm text-gray-600">
+                          {(findProductById(products, log.productId)?.color ?? log.color)} / {(findProductById(products, log.productId)?.size ?? log.size)}
+                        </td>
                         <td className="p-4 text-sm text-center">
                           <span className={`px-2 py-1 rounded text-xs font-bold ${
                             log.type === '초기입고' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 
@@ -3088,7 +3228,7 @@ export default function WholesalePOS() {
                           onClick={() => setSaleDetailModal(sale)}
                           title="클릭하여 상세 구매 내역 보기 및 일부 삭제"
                         >
-                          {sale.productName}
+                          {getSaleDisplayProductName(products, sale)}
                         </td>
                         <td className="p-4 text-sm text-center">
                           <span className={`px-2 py-1 rounded text-xs font-bold ${sale.type === '판매' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
@@ -3304,6 +3444,31 @@ export default function WholesalePOS() {
   };
 
   const renderProductStatsView = () => {
+    const rangeFrom =
+      productStatsRangeStart && productStatsRangeEnd
+        ? (productStatsRangeStart <= productStatsRangeEnd ? productStatsRangeStart : productStatsRangeEnd)
+        : '';
+    const rangeTo =
+      productStatsRangeStart && productStatsRangeEnd
+        ? (productStatsRangeEnd >= productStatsRangeStart ? productStatsRangeEnd : productStatsRangeStart)
+        : '';
+    const periodLabel =
+      rangeFrom && rangeTo ? `${rangeFrom} ~ ${rangeTo}` : '기간을 선택해 주세요';
+
+    const setProductStatsThisMonth = () => {
+      const mo = getTodayStr().substring(0, 7);
+      setProductStatsRangeStart(getFirstDayOfMonthStr(mo));
+      setProductStatsRangeEnd(getTodayStr());
+    };
+
+    const setProductStatsLastMonth = () => {
+      const lm = getLastMonthStr();
+      const [ly, lmn] = lm.split('-').map(Number);
+      const lastDay = new Date(ly, lmn, 0).getDate();
+      setProductStatsRangeStart(getFirstDayOfMonthStr(lm));
+      setProductStatsRangeEnd(`${lm}-${String(lastDay).padStart(2, '0')}`);
+    };
+
     const maxQty = productStatsTop10.length ? productStatsTop10[0].qty : 1;
     const barPalette = [
       'bg-blue-600',
@@ -3320,39 +3485,53 @@ export default function WholesalePOS() {
 
     return (
       <div className="p-6 h-full flex flex-col overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6 shrink-0">
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center">
-            <BarChart className="mr-2 text-blue-600" size={28} />
-            상품 통계
-          </h2>
-          <div className="flex items-center space-x-3 bg-white p-3 rounded-lg shadow-sm border border-gray-100">
-            <span className="text-sm font-bold text-gray-700">기준 월</span>
-            <input
-              type="month"
-              value={productStatsMonth}
-              onChange={(e) => setProductStatsMonth(e.target.value)}
-              className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
-            />
-            <button
-              type="button"
-              onClick={() => setProductStatsMonth(getTodayStr().substring(0, 7))}
-              className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition shadow-sm"
-            >
-              이번 달
-            </button>
-          </div>
+        <h2 className="text-2xl font-bold text-gray-800 mb-4 shrink-0 flex items-center">
+          <BarChart className="mr-2 text-blue-600" size={28} />
+          상품 통계
+        </h2>
+        <div className="mb-4 shrink-0 flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg shadow-sm border border-gray-100">
+          <span className="text-sm font-bold text-gray-700 shrink-0">시작일</span>
+          <input
+            type="date"
+            value={productStatsRangeStart}
+            onChange={(e) => setProductStatsRangeStart(e.target.value)}
+            className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
+          />
+          <span className="text-sm font-bold text-gray-700 shrink-0">종료일</span>
+          <input
+            type="date"
+            value={productStatsRangeEnd}
+            onChange={(e) => setProductStatsRangeEnd(e.target.value)}
+            className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
+          />
+          <button
+            type="button"
+            onClick={setProductStatsThisMonth}
+            className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition shadow-sm"
+          >
+            이번 달
+          </button>
+          <button
+            type="button"
+            onClick={setProductStatsLastMonth}
+            className="px-3 py-1.5 bg-gray-50 text-gray-700 border border-gray-200 rounded-md text-sm font-bold hover:bg-gray-100 transition shadow-sm"
+          >
+            지난 달
+          </button>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 flex flex-col min-h-0 overflow-hidden">
           <div className="p-4 border-b bg-gray-50 shrink-0">
             <p className="text-sm text-gray-600">
-              선택한 달의 <span className="font-bold text-gray-800">판매(결제)</span> 건 기준, 상품코드별 판매 수량 합계 상위 10위입니다. 이름·색상은 상품 관리의 현재 정보를 따릅니다.
+              <span className="font-bold text-blue-700">{periodLabel}</span> · <span className="font-bold text-gray-800">판매(결제)</span> 건 기준, 상품코드별 판매 수량 합계 상위 10위입니다. 이름·색상은 상품 관리의 현재 정보를 따릅니다.
             </p>
           </div>
           <div className="flex-1 overflow-y-auto p-5" onScroll={handleContainerScroll} ref={mainScrollRef}>
             {productStatsTop10.length === 0 ? (
               <div className="py-16 text-center text-gray-500 text-sm">
-                해당 월에 집계할 판매 내역(라인 품목)이 없습니다.
+                {!(productStatsRangeStart && productStatsRangeEnd)
+                  ? '시작일과 종료일을 선택해 주세요.'
+                  : '선택한 기간에 집계할 판매 내역(라인 품목)이 없습니다.'}
               </div>
             ) : (
               <div className="flex w-full flex-row items-stretch justify-between gap-1 overflow-x-auto px-1 pb-4 pt-10 sm:gap-2 sm:px-2 sm:pt-14">
@@ -3364,26 +3543,24 @@ export default function WholesalePOS() {
                       key={row.productId}
                       className="flex min-w-[4.25rem] w-0 flex-1 flex-col items-stretch sm:min-w-[5.25rem]"
                     >
-                      <div className="flex min-h-[15rem] flex-1 flex-col justify-end sm:min-h-[17rem]">
-                        <div className="mx-auto flex h-52 w-full max-w-[3.25rem] items-end justify-center overflow-hidden rounded-t-md bg-gray-200/80 sm:h-60 sm:max-w-[4rem]">
-                          <div
-                            className={`w-[72%] rounded-t-md ${barClass} transition-all duration-500`}
-                            style={{ height: `${pct}%`, minHeight: pct > 0 ? 4 : 0 }}
-                          />
-                        </div>
+                      <div className="mx-auto flex h-52 w-full max-w-[3.25rem] shrink-0 items-end justify-center overflow-hidden rounded-t-md bg-gray-200/80 sm:h-60 sm:max-w-[4rem]">
+                        <div
+                          className={`w-[72%] rounded-t-md ${barClass} transition-all duration-500`}
+                          style={{ height: `${pct}%`, minHeight: pct > 0 ? 4 : 0 }}
+                        />
                       </div>
-                      <div className="mt-2 flex flex-col items-center gap-0.5 text-center">
+                      <div className="mt-2 flex shrink-0 flex-col items-center gap-0.5 text-center">
                         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-900 text-[10px] font-black text-white">
                           {idx + 1}
                         </span>
                         <div
-                          className="line-clamp-2 w-full px-0.5 text-[10px] font-bold leading-tight text-gray-900 sm:text-xs"
+                          className="line-clamp-2 h-[2.4rem] w-full overflow-hidden px-0.5 text-[10px] font-bold leading-tight text-gray-900 sm:h-[2.75rem] sm:text-xs"
                           title={`${row.displayName} · ${row.displayColor}`}
                         >
                           {row.displayName}
                         </div>
                         <div
-                          className="line-clamp-2 w-full px-0.5 text-[11px] font-extrabold leading-snug tracking-tight text-slate-800 sm:text-sm sm:leading-snug"
+                          className="line-clamp-2 w-full overflow-hidden px-0.5 text-[10px] font-bold leading-tight text-slate-700 sm:text-xs"
                           title={row.displayColor}
                         >
                           {row.displayColor}
@@ -3774,7 +3951,7 @@ export default function WholesalePOS() {
                               {sale.type}
                             </span>
                           </td>
-                          <td className="p-3 font-bold text-blue-600 hover:underline">{sale.productName}</td>
+                          <td className="p-3 font-bold text-blue-600 hover:underline">{getSaleDisplayProductName(products, sale)}</td>
                           <td className="p-3 font-medium text-right">{sale.qty}장</td>
                           <td className={`p-3 font-bold text-right ${sale.type === '판매' ? 'text-gray-800' : 'text-gray-500'}`}>
                             ₩ {Math.abs((sale.actualPayment ?? 0) + (sale.appliedBalance ?? 0)).toLocaleString()}
@@ -3972,6 +4149,52 @@ export default function WholesalePOS() {
     handleSaveItemStatus(item, isMisong);
   };
 
+  const handleRevertCompletedItem = (item, isMisong) => {
+    const typeLabel = isMisong ? '미송(출고)' : '샘플(회수)';
+    showConfirm(
+      `[${item.customerName}] ${getMisongSampleProductName(products, item)}\n${typeLabel} 완료 처리를 취소하고 진행 중 목록으로 되돌리시겠습니까?\n(마지막으로 반영된 1장분 재고는 원복됩니다.)`,
+      () => {
+        const prevSaved = isMisong ? item.savedShippedQty : item.savedReturnedQty;
+        const newSaved = Math.max(0, item.qty - 1);
+        if (newSaved >= item.qty) {
+          showAlert('되돌릴 수 있는 완료 내역이 없습니다.');
+          return;
+        }
+
+        const stockDelta = isMisong ? prevSaved - newSaved : newSaved - prevSaved;
+
+        if (stockDelta !== 0) {
+          const updatedProduct = products.find(p => p.id === item.productId);
+          if (updatedProduct) {
+            const newProduct = { ...updatedProduct, stock: Math.max(0, updatedProduct.stock + stockDelta) };
+            setProducts(products.map(p => p.id === item.productId ? newProduct : p));
+            saveItem('products', newProduct);
+          }
+        }
+
+        if (isMisong) {
+          const reverted = {
+            ...item,
+            savedShippedQty: newSaved,
+            shippedQty: newSaved,
+          };
+          setMisongList(misongList.map(m => (m.id === item.id ? reverted : m)));
+          saveItem('misong', reverted);
+        } else {
+          const reverted = {
+            ...item,
+            savedReturnedQty: newSaved,
+            returnedQty: newSaved,
+          };
+          setSampleList(sampleList.map(s => (s.id === item.id ? reverted : s)));
+          saveItem('samples', reverted);
+        }
+
+        showAlert(`${typeLabel} 내역이 진행 중 목록으로 되돌려졌습니다.\n(출고·회수 수량을 다시 수정할 수 있습니다.)`);
+      }
+    );
+  };
+
   const handleDeleteItem = (item, isMisong) => {
     showConfirm("정말 삭제하시겠습니까? (반영된 재고는 원래대로 복구됩니다)", () => {
       let stockDelta = 0;
@@ -4049,7 +4272,7 @@ export default function WholesalePOS() {
                   <tr key={item.id} className="hover:bg-gray-50">
                     <td className="p-4 text-sm text-gray-900">{item.date}</td>
                     <td className="p-4 text-sm font-bold text-gray-800">{item.customerName}</td>
-                    <td className="p-4 text-sm text-gray-600">{item.productName}</td>
+                    <td className="p-4 text-sm text-gray-600">{getMisongSampleProductName(products, item)}</td>
                     
                     {isCompleted ? (
                       <>
@@ -4147,7 +4370,17 @@ export default function WholesalePOS() {
                             저장
                           </button>
                         )}
-                        <button onClick={() => handleDeleteItem(item, isCompleted ? item._type === '미송' : isMisong)} className="text-red-500 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-50 border border-red-200 transition-colors shadow-sm">삭제</button>
+                        {isCompleted ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRevertCompletedItem(item, item._type === '미송')}
+                            className="px-3 py-1.5 rounded text-xs font-bold border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors shadow-sm whitespace-nowrap"
+                          >
+                            되돌리기
+                          </button>
+                        ) : (
+                          <button onClick={() => handleDeleteItem(item, isMisong)} className="text-red-500 px-3 py-1.5 rounded text-xs font-bold hover:bg-red-50 border border-red-200 transition-colors shadow-sm">삭제</button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -4443,10 +4676,12 @@ export default function WholesalePOS() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {items && items.map((item, idx) => (
+                {items && items.map((item, idx) => {
+                  const lineDisplay = resolveLineItemDisplay(products, item);
+                  return (
                   <tr key={idx} className="hover:bg-blue-50 transition-colors">
-                    <td className="p-3 text-sm font-bold text-gray-800">{item.name}</td>
-                    <td className="p-3 text-sm text-gray-600 text-center">{item.color} / {item.size}</td>
+                    <td className="p-3 text-sm font-bold text-gray-800">{lineDisplay.name}</td>
+                    <td className="p-3 text-sm text-gray-600 text-center">{lineDisplay.color} / {lineDisplay.size}</td>
                     <td className="p-3 text-sm text-right text-gray-500">₩ {item.price.toLocaleString()}</td>
                     <td className="p-3 text-sm text-right font-medium">{item.qty}장</td>
                     <td className="p-3 text-sm font-bold text-right text-gray-900">₩ {(item.price * item.qty).toLocaleString()}</td>
@@ -4459,7 +4694,8 @@ export default function WholesalePOS() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
