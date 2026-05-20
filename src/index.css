@@ -1,1 +1,12 @@
 @import "tailwindcss";
+
+/* 금액 입력: 증감 화살표 제거 (스크롤 휠 변경은 onWheel blur로 처리) */
+.input-money-no-spin {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.input-money-no-spin::-webkit-outer-spin-button,
+.input-money-no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

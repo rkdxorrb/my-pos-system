@@ -89,6 +89,11 @@ const shiftMonthStr = (monthStr, offsetMonths) => {
 
 const getFirstDayOfMonthStr = (monthStr) => `${monthStr}-01`;
 
+/** 금액 number 입력: 스크롤 휠로 값이 바뀌지 않도록 포커스 해제 */
+const preventMoneyInputWheel = (e) => {
+  e.currentTarget.blur();
+};
+
 const getLineItemProductId = (item) => item?.id ?? item?.productId ?? '';
 
 const findProductById = (products, productId) =>
@@ -177,7 +182,6 @@ const MENU_CONFIG = {
   inventory: { label: '상품 관리', Icon: Package },
   restockHistory: { label: '입고 내역', Icon: Inbox },
   customers: { label: '업체 내역', Icon: Users },
-  addCustomer: { label: '거래처 등록', Icon: UserPlus },
   misong: { label: '미송 / 샘플 내역', Icon: FileText },
   cash: { label: '시재 관리', Icon: Wallet },
   notice: { label: '공지사항', Icon: Megaphone },
@@ -262,7 +266,7 @@ const MenuOrderDragList = ({ menuOrder, setMenuOrder }) => {
       onDragOverCapture={handleListDragOverCapture}
       onDrop={handleDrop}
     >
-      {menuOrder.map((menuId, index) => {
+      {menuOrder.filter((id) => MENU_CONFIG[id]).map((menuId, index) => {
         const { label, Icon } = MENU_CONFIG[menuId];
         const isDragging = dragFrom === index;
         return (
@@ -359,6 +363,7 @@ export default function WholesalePOS() {
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
   const [menuOrder, setMenuOrder] = useState(Object.keys(MENU_CONFIG));
+  const visibleMenuOrder = menuOrder.filter((id) => MENU_CONFIG[id]);
 
   const [fbUser, setFbUser] = useState(null);
 
@@ -394,7 +399,8 @@ export default function WholesalePOS() {
   const [restockSearchDate, setRestockSearchDate] = useState(getTodayStr());
   const [restockSearchMonth, setRestockSearchMonth] = useState(getTodayStr().substring(0, 7));
   const [restockSearchQuery, setRestockSearchQuery] = useState('');
-  const [restockViewType, setRestockViewType] = useState('daily'); 
+  const [restockViewType, setRestockViewType] = useState('daily');
+  const [restockEditForm, setRestockEditForm] = useState(null); 
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [customerListTab, setCustomerListTab] = useState('전체');
@@ -405,14 +411,18 @@ export default function WholesalePOS() {
   const [addCustomerForm, setAddCustomerForm] = useState({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
 
   const today = getTodayStr();
-  const [reportDate, setReportDate] = useState(today);
-  const [reportMonth, setReportMonth] = useState(today.substring(0, 7));
+  const [reportDate, setReportDate] = useState(() => getDefaultTransactionDateStr());
+  const [reportMonth, setReportMonth] = useState(() => getDefaultTransactionDateStr().substring(0, 7));
   const [productStatsRangeStart, setProductStatsRangeStart] = useState(() => getFirstDayOfMonthStr(getTodayStr().substring(0, 7)));
   const [productStatsRangeEnd, setProductStatsRangeEnd] = useState(() => getTodayStr());
   const [salesReportTab, setSalesReportTab] = useState('daily'); 
   const [salesReportSort, setSalesReportSort] = useState({ key: 'date', direction: 'desc' });
   
   const [saleDetailModal, setSaleDetailModal] = useState(null);
+  const [productDetailModalOpen, setProductDetailModalOpen] = useState(false);
+  const [customerDetailModalOpen, setCustomerDetailModalOpen] = useState(false);
+  const [addProductModalOpen, setAddProductModalOpen] = useState(false);
+  const [addCustomerModalOpen, setAddCustomerModalOpen] = useState(false);
 
   const [misongTab, setMisongTab] = useState('misong');
   const [transactionDate, setTransactionDate] = useState(() => getDefaultTransactionDateStr());
@@ -430,6 +440,7 @@ export default function WholesalePOS() {
   const customersScrollRef = useRef(0); 
   const salesScrollRef = useRef(0);
   const mainScrollRef = useRef(null);
+  const detailModalScrollRef = useRef(null);
 
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
@@ -451,6 +462,133 @@ export default function WholesalePOS() {
 
   const scrollToTop = () => {
     if (mainScrollRef.current) mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const openRestockEditModal = (log) => {
+    const product = products.find((p) => p.id === log.productId);
+    if (!product) {
+      showAlert('연결된 상품 정보가 없어 수정할 수 없습니다.');
+      return;
+    }
+    const supplierId = product.supplierId || customers.find((c) => c.name === log.supplier)?.id || '';
+    setRestockEditForm({
+      logId: log.id,
+      productId: log.productId,
+      date: log.date,
+      time: log.time || '',
+      type: log.type || '재입고',
+      qty: String(Math.abs(log.qty)),
+      supplierId,
+      name: product.name,
+      adminName: product.adminName || '',
+      category: product.category || '상의',
+      color: product.color || '',
+      size: product.size || 'Free',
+      price: product.price,
+      material: product.material || '',
+      origin: product.origin || '',
+    });
+  };
+
+  const closeRestockEditModal = () => setRestockEditForm(null);
+
+  const closeProductDetailModal = () => {
+    setProductDetailModalOpen(false);
+    setProductDetailEditMode(false);
+  };
+  const closeCustomerDetailModal = () => {
+    setCustomerDetailModalOpen(false);
+    setCustomerDetailEditMode(false);
+  };
+  const closeAddProductModal = () => setAddProductModalOpen(false);
+  const closeAddCustomerModal = () => setAddCustomerModalOpen(false);
+
+  const openAddProductModal = () => {
+    setAddProductForm({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '', date: getTodayStr() });
+    setAddProductModalOpen(true);
+  };
+  const openAddCustomerModal = () => {
+    setAddCustomerForm({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
+    setAddCustomerModalOpen(true);
+  };
+
+  const handleRestockEditFormChange = (e) => {
+    setRestockEditForm((prev) => (prev ? { ...prev, [e.target.name]: e.target.value } : prev));
+  };
+
+  const handleSaveRestockEdit = () => {
+    const form = restockEditForm;
+    if (!form) return;
+    if (!form.name || form.price === '' || form.price === undefined) {
+      showAlert('상품명과 단가는 필수 입력 항목입니다.');
+      return;
+    }
+    const oldLog = restockHistory.find((r) => r.id === form.logId);
+    const product = products.find((p) => p.id === form.productId);
+    if (!oldLog || !product) {
+      showAlert('수정할 내역을 찾을 수 없습니다.');
+      return;
+    }
+    const qtyNum = Number(form.qty);
+    if (!qtyNum || qtyNum <= 0) {
+      showAlert('올바른 수량을 입력해 주세요.');
+      return;
+    }
+    const newSignedQty = form.type === '매입처반품' ? -qtyNum : qtyNum;
+    const qtyDiff = newSignedQty - oldLog.qty;
+    const supplierName = form.supplierId
+      ? customers.find((c) => c.id === form.supplierId)?.name
+      : '자체제작/기타';
+
+    const updatedProduct = {
+      ...product,
+      name: form.name,
+      adminName: form.adminName,
+      category: form.category,
+      color: form.color || 'Free',
+      size: form.size || 'Free',
+      price: Number(form.price),
+      material: form.material,
+      origin: form.origin,
+      supplierId: form.supplierId || '',
+      stock: Math.max(0, product.stock + qtyDiff),
+    };
+
+    if (form.type === '초기입고') {
+      updatedProduct.initialStock = Math.max(0, (product.initialStock ?? product.stock) + qtyDiff);
+    } else if (form.type !== '매입처반품') {
+      updatedProduct.restockedQty = Math.max(0, (product.restockedQty || 0) + qtyDiff);
+    }
+
+    const updatedLog = {
+      ...oldLog,
+      date: form.date,
+      time: form.time,
+      productName: form.name,
+      color: updatedProduct.color,
+      size: updatedProduct.size,
+      supplier: supplierName,
+      qty: newSignedQty,
+      type: form.type,
+    };
+
+    setProducts((prev) => prev.map((p) => (p.id === product.id ? updatedProduct : p)));
+    saveItem('products', updatedProduct);
+    if (selectedProduct?.id === product.id) setSelectedProduct(updatedProduct);
+
+    setRestockHistory((prev) => prev.map((r) => (r.id === form.logId ? updatedLog : r)));
+    saveItem('restockHistory', updatedLog);
+
+    if (
+      product.name !== updatedProduct.name ||
+      product.color !== updatedProduct.color ||
+      product.size !== updatedProduct.size
+    ) {
+      syncProductLabelsAcrossRecords(product.id, updatedProduct);
+    }
+
+    closeRestockEditModal();
+    showAlert('입고 내역 및 상품 정보가 수정되었습니다.');
   };
 
   const syncProductLabelsAcrossRecords = (productId, product) => {
@@ -512,8 +650,8 @@ export default function WholesalePOS() {
       setDiscountAmount(0);
       setFocusedCustomerIndex(-1);
       setTransactionDate(getDefaultTransactionDateStr());
-      setReportDate(getTodayStr());
-      setReportMonth(getTodayStr().substring(0, 7));
+      setReportDate(getDefaultTransactionDateStr());
+      setReportMonth(getDefaultTransactionDateStr().substring(0, 7));
       setProductStatsRangeStart(getFirstDayOfMonthStr(getTodayStr().substring(0, 7)));
       setProductStatsRangeEnd(getTodayStr());
       setRestockSearchDate(getTodayStr());
@@ -551,6 +689,13 @@ export default function WholesalePOS() {
     }, 50);
     return () => clearTimeout(timer);
   }, [activeMenu, salesCategoryTab, customerListTab]); 
+
+  useEffect(() => {
+    setMenuOrder((prev) => {
+      const next = prev.filter((id) => MENU_CONFIG[id]);
+      return next.length === prev.length ? prev : next;
+    });
+  }, []);
 
   const goBack = () => {
     setMenuHistory(prev => {
@@ -717,14 +862,14 @@ export default function WholesalePOS() {
     setProductRestockQty('');
     setProductRestockSupplierId('');
     setProductRestockDate(getTodayStr());
-    navigateTo('productDetail');
+    setProductDetailModalOpen(true);
   };
 
   const handleGoToCustomerDetail = (c, editMode = false) => {
     setSelectedCustomerDetail(c);
     setCustomerEditForm(c);
     setCustomerDetailEditMode(editMode);
-    navigateTo('customerDetail');
+    setCustomerDetailModalOpen(true);
   };
 
   useEffect(() => {
@@ -805,36 +950,52 @@ export default function WholesalePOS() {
         return; 
       }
 
+      if (restockEditForm && e.key === 'Escape') {
+        e.preventDefault();
+        closeRestockEditModal();
+        return;
+      }
+
       if (saleDetailModal && e.key === 'Escape') {
         e.preventDefault();
         setSaleDetailModal(null);
         return;
       }
 
-      if (e.key === 'Backspace') {
-        const activeTag = document.activeElement?.tagName?.toLowerCase();
-        if (activeTag !== 'input' && activeTag !== 'textarea' && activeTag !== 'select') {
-          e.preventDefault();
-          if (['productDetail', 'addProduct', 'customerDetail', 'addCustomer'].includes(activeMenu)) {
-            goBack();
-          }
-        }
+      if (productDetailModalOpen && e.key === 'Escape') {
+        e.preventDefault();
+        closeProductDetailModal();
+        return;
+      }
+      if (customerDetailModalOpen && e.key === 'Escape') {
+        e.preventDefault();
+        closeCustomerDetailModal();
+        return;
+      }
+      if (addProductModalOpen && e.key === 'Escape') {
+        e.preventDefault();
+        closeAddProductModal();
+        return;
+      }
+      if (addCustomerModalOpen && e.key === 'Escape') {
+        e.preventDefault();
+        closeAddCustomerModal();
         return;
       }
 
       const match = e.key.match(/^F(\d+)$/);
       if (match) {
         const fNumber = parseInt(match[1], 10);
-        if (fNumber >= 1 && fNumber <= menuOrder.length) {
+        if (fNumber >= 1 && fNumber <= visibleMenuOrder.length) {
           e.preventDefault(); 
-          navigateTo(menuOrder[fNumber - 1], true);
+          navigateTo(visibleMenuOrder[fNumber - 1], true);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modalConfig, menuOrder, activeMenu, menuHistory, saleDetailModal]);
+  }, [modalConfig, visibleMenuOrder, saleDetailModal, restockEditForm, productDetailModalOpen, customerDetailModalOpen, addProductModalOpen, addCustomerModalOpen]);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
@@ -878,12 +1039,19 @@ export default function WholesalePOS() {
     const printTime = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
     const txDate = receiptData.date || now.toLocaleDateString();
 
-    let itemsHtml = '';
-    receiptData.cart.forEach(item => {
+    const lineItemCount = receiptData.cart.length;
+    const totalQty = receiptData.cart.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+    const itemsSectionLabel =
+      receiptData.type === '반품' ? '반품내역' : receiptData.type === '샘플' ? '출고내역' : '구매내역';
+
+    let itemsHtml = `
+      <div class="items-header">${itemsSectionLabel} <span class="items-count">(총 ${lineItemCount}개 항목)</span></div>
+    `;
+    receiptData.cart.forEach((item, index) => {
       const itemTotal = item.qty * item.price;
       itemsHtml += `
         <div class="item">
-          <div class="item-name">${item.name} (${item.color}/${item.size})</div>
+          <div class="item-name"><span class="item-no">${index + 1}.</span> ${item.name} (${item.color}/${item.size})</div>
           <div class="item-calc">
             <span>${item.price.toLocaleString()} x ${item.qty}</span>
             <span>${itemTotal.toLocaleString()}</span>
@@ -913,21 +1081,21 @@ export default function WholesalePOS() {
         <div class="divider"></div>
         <div class="summary-line total-line">
           <span>최종 결제액</span>
-          <span>${receiptData.actualPayment.toLocaleString()}</span>
+          <span>${receiptData.actualPayment.toLocaleString()}원 <span class="total-qty">(${totalQty}장)</span></span>
         </div>
       `;
     } else if (receiptData.type === '반품') {
       summaryHtml = `
         <div class="summary-line total-line">
           <span>총 반품액 (잔고적립)</span>
-          <span>${receiptData.amountAfterDiscount.toLocaleString()}</span>
+          <span>${receiptData.amountAfterDiscount.toLocaleString()}원 <span class="total-qty">(${totalQty}장)</span></span>
         </div>
       `;
     } else if (receiptData.type === '샘플') {
       summaryHtml = `
         <div class="summary-line total-line">
           <span>샘플 출고</span>
-          <span>총 ${receiptData.cart.reduce((s, i) => s + i.qty, 0)} 장</span>
+          <span>총 ${totalQty}장 <span class="total-qty-sub">(${lineItemCount}개 항목)</span></span>
         </div>
       `;
     }
@@ -1019,8 +1187,13 @@ export default function WholesalePOS() {
           .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
           .divider-solid { border-bottom: 1.5px solid #000; margin: 10px 0; }
           .customer-info { font-weight: 900; font-size: 14px; margin: 10px 0; color: #000; }
+          .items-header { font-weight: 900; font-size: 13px; margin: 8px 0 10px; color: #000; }
+          .items-count { font-size: 12px; font-weight: 700; color: #333; }
           .item { margin-bottom: 10px; }
           .item-name { font-weight: 900; font-size: 12px; margin-bottom: 2px; color: #000; }
+          .item-no { display: inline-block; min-width: 1.4em; margin-right: 2px; }
+          .total-qty { font-size: 14px; font-weight: 900; }
+          .total-qty-sub { font-size: 13px; font-weight: 700; }
           .item-calc { display: flex; justify-content: space-between; font-size: 12px; padding-left: 10px; color: #000; font-weight: 500; }
           .misong-notice { font-size: 11px; padding-left: 10px; margin-top: 2px; font-weight: 900; color: #000; }
           .summary-line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; font-weight: 900; color: #000; }
@@ -1066,9 +1239,7 @@ export default function WholesalePOS() {
     showConfirm('해당 상품을 정말 삭제하시겠습니까?\n(삭제 시 관련된 다른 내역에 영향을 줄 수 있습니다)', () => {
       setProducts(products.filter(p => p.id !== id));
       deleteItem('products', id); 
-      if (activeMenu === 'productDetail' && selectedProduct?.id === id) {
-        navigateTo('inventory', true);
-      }
+      if (selectedProduct?.id === id) closeProductDetailModal();
     });
   };
 
@@ -1076,9 +1247,7 @@ export default function WholesalePOS() {
     showConfirm('해당 거래처를 정말 삭제하시겠습니까?\n(삭제 시 기존 거래 내역과 연결이 끊어질 수 있습니다)', () => {
       setCustomers(customers.filter(c => c.id !== id));
       deleteItem('customers', id); 
-      if (activeMenu === 'customerDetail' && selectedCustomerDetail?.id === id) {
-        navigateTo('customers', true);
-      }
+      if (selectedCustomerDetail?.id === id) closeCustomerDetailModal();
     });
   };
 
@@ -1454,7 +1623,7 @@ export default function WholesalePOS() {
   };
 
   const renderDashboardView = () => {
-    const displayDate = getTodayStr(); 
+    const displayDate = getDefaultTransactionDateStr();
     const todaySalesList = dailySales.filter(sale => sale.date === displayDate);
     
     const todayNetSales = todaySalesList.reduce((sum, sale) => {
@@ -1468,13 +1637,13 @@ export default function WholesalePOS() {
     const todaySalesCount = todaySalesList.length;
     const totalBalance = customers.reduce((sum, c) => sum + c.balance, 0);
     const pendingMisongCount = misongList.filter(m => m.savedShippedQty < m.qty).length;
-    const recentSales = dailySales.slice(0, 5);
+    const recentSales = dailySales.filter(sale => sale.date === displayDate).slice(0, 5);
 
     return (
       <div className="p-6 pb-28 space-y-6 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-800">금일 영업 현황 (메인화면)</h2>
-          <span className="text-sm font-medium text-gray-500 bg-white px-3 py-1 rounded-full shadow-sm border border-gray-100">오늘: {displayDate}</span>
+          <span className="text-sm font-medium text-gray-500 bg-white px-3 py-1 rounded-full shadow-sm border border-gray-100" title="22시 이후는 익일 매출일자 기준">매출일: {displayDate}</span>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1525,7 +1694,7 @@ export default function WholesalePOS() {
                     </td>
                   </tr>
                 ))}
-                {recentSales.length === 0 && (<tr><td colSpan="4" className="p-4 text-center text-gray-500 text-sm">최근 판매 내역이 없습니다.</td></tr>)}
+                {recentSales.length === 0 && (<tr><td colSpan="4" className="p-4 text-center text-gray-500 text-sm">해당 매출일의 판매 내역이 없습니다.</td></tr>)}
               </tbody>
             </table>
           </div>
@@ -1960,7 +2129,8 @@ export default function WholesalePOS() {
                   type="number" 
                   value={discountAmount === 0 ? '' : discountAmount}
                   onChange={(e) => setDiscountAmount(Number(e.target.value))}
-                  className="w-24 p-2 text-right text-red-500 font-bold rounded-md outline-none focus:ring-2 focus:ring-red-400 text-base bg-white shadow-sm"
+                  onWheel={preventMoneyInputWheel}
+                  className="input-money-no-spin w-24 p-2 text-right text-red-500 font-bold rounded-md outline-none focus:ring-2 focus:ring-red-400 text-base bg-white shadow-sm"
                   placeholder="0"
                 />
               </div>
@@ -2124,7 +2294,7 @@ export default function WholesalePOS() {
               )}
             </div>
             <button 
-              onClick={() => navigateTo('addProduct')}
+              onClick={openAddProductModal}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-blue-700 shadow-sm"
             >
               <Plus size={18} className="mr-2"/> 신규 상품 등록
@@ -2212,7 +2382,7 @@ export default function WholesalePOS() {
     );
   };
 
-  const renderAddProductView = () => {
+  const renderAddProductView = ({ inModal = false } = {}) => {
     const handleAddProductChange = (e) => setAddProductForm({ ...addProductForm, [e.target.name]: e.target.value });
     const suppliers = customers.filter(c => c.type === '매입처');
 
@@ -2314,7 +2484,8 @@ export default function WholesalePOS() {
 
       showAlert(`[${addProductForm.name}] 상품이 등록되었습니다.\n(상품코드: ${newId})`, () => {
         setAddProductForm({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '', date: getTodayStr() });
-        goBack();
+        if (inModal) closeAddProductModal();
+        else goBack();
       });
     };
 
@@ -2335,105 +2506,116 @@ export default function WholesalePOS() {
       }
     };
 
+    const cancelAddProduct = inModal ? closeAddProductModal : goBack;
+
     return (
-      <div className="px-6 pb-6 pt-2 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
-        <div className="flex items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">신규 상품 등록</h2>
-        </div>
+      <div className={inModal ? '' : 'px-6 pb-6 pt-2 overflow-y-auto'} onScroll={!inModal ? handleContainerScroll : undefined} ref={!inModal ? mainScrollRef : undefined}>
+        {!inModal && (
+          <div className="flex items-center mb-6">
+            <h2 className="text-2xl font-bold text-gray-800">신규 상품 등록</h2>
+          </div>
+        )}
         
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl">
-          <form onSubmit={handleSubmit} onKeyDown={handleProductFormKeyDown} className="space-y-6">
-            
-            <div className="w-full flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 hover:bg-gray-100 transition relative">
+        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${inModal ? 'border-0 shadow-none p-0' : 'p-8 max-w-4xl'}`}>
+          <form onSubmit={handleSubmit} onKeyDown={handleProductFormKeyDown} className="flex flex-col md:flex-row gap-6 md:gap-8">
+            <div className="w-full md:w-1/3 max-w-[280px] aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0 self-start mx-auto md:mx-0">
               {addProductForm.image ? (
-                <div className="relative w-40 aspect-[3/4]">
-                   <img src={addProductForm.image} alt="preview" className="w-full h-full object-cover rounded-lg shadow-sm" />
-                   <button 
-                    type="button" 
-                    onClick={(e) => { e.preventDefault(); setAddProductForm({...addProductForm, image: ''}); }} 
-                    className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1.5 shadow-md hover:bg-red-600 z-10"
-                   >
-                     <Trash2 size={16}/>
-                   </button>
-                </div>
+                <>
+                  <img src={addProductForm.image} alt="preview" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition duration-200">
+                    <span className="text-white font-bold bg-black/60 px-4 py-2 rounded-lg flex items-center text-sm">
+                      <Upload size={18} className="mr-2" /> 이미지 변경
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAddProductForm({ ...addProductForm, image: '' }); }}
+                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-md hover:bg-red-600 z-10"
+                    title="이미지 삭제"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </>
               ) : (
                 <>
-                  <Upload size={48} className="text-gray-400 mb-3" />
-                  <p className="text-sm text-gray-600 font-bold mb-1">여기를 클릭하여 상품 이미지 등록</p>
-                  <p className="text-xs text-gray-400">JPG, PNG 파일 첨부 가능</p>
+                  <Upload size={48} className="mb-3 text-gray-400" />
+                  <span className="text-sm font-bold text-gray-500 text-center px-4">클릭하여 이미지 등록</span>
+                  <span className="text-xs text-gray-400 mt-1">JPG, PNG</span>
                 </>
               )}
-              {!addProductForm.image && (
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" tabIndex="-1" />
-              )}
+              <input type="file" accept="image/*" onChange={handleImageUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" tabIndex="-1" />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">노출용 상품명 (고객용) *</label>
-                <input type="text" name="name" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.name} onChange={handleAddProductChange} placeholder="예) 오버핏 카라 니트" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">관리용 상품명 (도매용)</label>
-                <input type="text" name="adminName" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.adminName} onChange={handleAddProductChange} placeholder="예) A-01 카라니트" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">분류</label>
-                <select name="category" value={addProductForm.category} onChange={handleAddProductChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                  <option value="상의">상의</option>
-                  <option value="하의">하의</option>
-                  <option value="세트">세트</option>
-                  <option value="아우터">아우터</option>
-                  <option value="기타">기타</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">색상</label>
-                <input type="text" name="color" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.color} onChange={handleAddProductChange} placeholder="예) 베이지" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">사이즈</label>
-                <select name="size" value={addProductForm.size} onChange={handleAddProductChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                  <option value="Free">Free</option>
-                  <option value="S">S</option>
-                  <option value="M">M</option>
-                  <option value="L">L</option>
-                  <option value="XL">XL</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">도매단가 (원) *</label>
-                <input type="number" name="price" value={addProductForm.price} onChange={handleAddProductChange} placeholder="예) 18000" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">매입처</label>
-                <select name="supplierId" value={addProductForm.supplierId} onChange={handleAddProductChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-                  <option value="">-- 매입처 선택 (선택사항) --</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">초기 재고수량 (장)</label>
-                <input type="number" name="stock" value={addProductForm.stock} onChange={handleAddProductChange} placeholder="예) 50" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+            <div className="flex-1 min-w-0 flex flex-col">
+              <div className="space-y-4 flex-1">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">노출용 상품명 (고객용) *</label>
+                  <input type="text" name="name" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.name} onChange={handleAddProductChange} placeholder="예) 오버핏 카라 니트" className="w-full text-xl font-bold border-b border-gray-300 pb-1 focus:border-blue-500 outline-none bg-transparent" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">관리용 상품명 (도매용)</label>
+                  <input type="text" name="adminName" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.adminName} onChange={handleAddProductChange} placeholder="예) A-01 카라니트" className="w-full text-md border-b border-gray-300 pb-1 focus:border-blue-500 outline-none bg-transparent" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    <label className="block text-xs text-gray-500 mb-1">도매단가 (원) *</label>
+                    <input type="number" name="price" value={addProductForm.price} onChange={handleAddProductChange} onWheel={preventMoneyInputWheel} placeholder="18000" className="input-money-no-spin w-full font-bold text-gray-800 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none tabular-nums" />
+                  </div>
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                    <label className="block text-xs text-blue-700 mb-1 font-bold">초기 재고수량 (장)</label>
+                    <input type="number" name="stock" value={addProductForm.stock} onChange={handleAddProductChange} placeholder="50" className="w-full font-bold text-blue-800 bg-transparent border-b border-blue-300 focus:border-blue-500 outline-none tabular-nums" />
+                  </div>
+                  <div className="col-span-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <label className="block text-xs text-slate-600 mb-1 font-medium">매입처</label>
+                    <select name="supplierId" value={addProductForm.supplierId} onChange={handleAddProductChange} className="w-full border border-slate-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm">
+                      <option value="">— 매입처 선택 (선택) —</option>
+                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">입고 일자</label>
+                    <input type="date" name="date" value={addProductForm.date || getTodayStr()} onChange={handleAddProductChange} className="w-full border border-gray-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm font-medium" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">분류</label>
+                    <select name="category" value={addProductForm.category} onChange={handleAddProductChange} className="w-full border border-gray-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm">
+                      <option value="상의">상의</option>
+                      <option value="하의">하의</option>
+                      <option value="세트">세트</option>
+                      <option value="아우터">아우터</option>
+                      <option value="기타">기타</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">색상</label>
+                    <input type="text" name="color" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.color} onChange={handleAddProductChange} placeholder="베이지" className="w-full border border-gray-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">사이즈</label>
+                    <select name="size" value={addProductForm.size} onChange={handleAddProductChange} className="w-full border border-gray-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm">
+                      <option value="Free">Free</option>
+                      <option value="S">S</option>
+                      <option value="M">M</option>
+                      <option value="L">L</option>
+                      <option value="XL">XL</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">제조국</label>
+                    <input type="text" name="origin" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.origin} onChange={handleAddProductChange} placeholder="대한민국" className="w-full border border-gray-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs text-gray-500 mb-1">혼용률</label>
+                    <input type="text" name="material" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.material} onChange={handleAddProductChange} placeholder="면 80%, 폴리 20%" className="w-full border border-gray-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">입고 일자 (지정)</label>
-                <input type="date" name="date" value={addProductForm.date || getTodayStr()} onChange={handleAddProductChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white font-medium" />
+              <div className="flex justify-end gap-3 pt-5 mt-4 border-t border-gray-100 shrink-0">
+                <button type="button" onClick={cancelAddProduct} className="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm" tabIndex="-1">취소</button>
+                <button type="submit" className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-sm text-sm">상품 등록</button>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">제조국</label>
-                <input type="text" name="origin" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.origin} onChange={handleAddProductChange} placeholder="예) 대한민국" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">혼용률</label>
-                <input type="text" name="material" lang="ko" style={{ imeMode: 'active' }} value={addProductForm.material} onChange={handleAddProductChange} placeholder="예) 면 80%, 폴리 20%" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-            </div>
-            <div className="flex justify-end space-x-3 pt-4 border-t">
-              <button type="button" onClick={goBack} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium" tabIndex="-1">취소</button>
-              <button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-md">상품 등록</button>
             </div>
           </form>
         </div>
@@ -2441,7 +2623,7 @@ export default function WholesalePOS() {
     );
   };
 
-  const renderProductDetailView = () => {
+  const renderProductDetailView = ({ inModal = false } = {}) => {
     if (!selectedProduct) return null;
 
     const suppliers = customers.filter(c => c.type === '매입처');
@@ -2610,7 +2792,7 @@ export default function WholesalePOS() {
     const discountRate = hasSale ? Math.round((1 - selectedProduct.salePrice / selectedProduct.price) * 100) : 0;
 
     return (
-      <div className="px-6 pb-6 pt-2 flex min-h-0 flex-1 flex-col">
+      <div className={inModal ? 'p-5 flex min-h-0 flex-col' : 'px-6 pb-6 pt-2 flex min-h-0 flex-1 flex-col'}>
         <div className="flex items-center justify-between mb-6 shrink-0">
           <div className="flex items-center">
             <h2 className="text-2xl font-bold text-gray-800">상품 상세 정보</h2>
@@ -2640,7 +2822,7 @@ export default function WholesalePOS() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 pb-16 max-w-4xl flex flex-1 min-h-0 flex-col md:flex-row gap-8 overflow-y-auto overscroll-contain" onScroll={handleContainerScroll} ref={mainScrollRef}>
+        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-8 pb-16 max-w-4xl flex flex-1 min-h-0 flex-col md:flex-row gap-8 ${inModal ? '' : 'overflow-y-auto overscroll-contain'}`} onScroll={inModal ? undefined : handleContainerScroll} ref={inModal ? undefined : mainScrollRef}>
           
           <div className="w-full md:w-1/3 max-w-[320px] aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0 self-start">
             {productDetailEditMode ? (
@@ -2681,11 +2863,11 @@ export default function WholesalePOS() {
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <div className="bg-gray-50 p-3 rounded-lg border">
                     <label className="block text-xs text-gray-500 mb-1">정상가 (원)</label>
-                    <input type="number" value={productEditForm.price} onChange={e => setProductEditForm({...productEditForm, price: e.target.value})} className="w-full font-bold text-gray-800 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none" />
+                    <input type="number" value={productEditForm.price} onChange={e => setProductEditForm({...productEditForm, price: e.target.value})} onWheel={preventMoneyInputWheel} className="input-money-no-spin w-full font-bold text-gray-800 bg-transparent border-b border-gray-300 focus:border-blue-500 outline-none" />
                   </div>
                   <div className="bg-red-50 p-3 rounded-lg border border-red-100">
                     <label className="block text-xs text-red-500 mb-1 font-bold">세일 할인가 (원)</label>
-                    <input type="number" value={productEditForm.salePrice || ''} placeholder="할인 없을시 비워둠" onChange={e => setProductEditForm({...productEditForm, salePrice: e.target.value})} className="w-full font-bold text-red-600 bg-transparent border-b border-red-300 focus:border-red-500 outline-none placeholder-red-300" />
+                    <input type="number" value={productEditForm.salePrice || ''} placeholder="할인 없을시 비워둠" onChange={e => setProductEditForm({...productEditForm, salePrice: e.target.value})} onWheel={preventMoneyInputWheel} className="input-money-no-spin w-full font-bold text-red-600 bg-transparent border-b border-red-300 focus:border-red-500 outline-none placeholder-red-300" />
                   </div>
                   
                   <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 col-span-2">
@@ -2801,8 +2983,9 @@ export default function WholesalePOS() {
                         min={0}
                         value={customerTierPriceInput}
                         onChange={(e) => setCustomerTierPriceInput(e.target.value)}
+                        onWheel={preventMoneyInputWheel}
                         placeholder="예: 15000"
-                        className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                        className="input-money-no-spin w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
                       />
                     </div>
                     <button
@@ -3027,6 +3210,7 @@ export default function WholesalePOS() {
                 <table className="w-full text-left relative">
                   <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                     <tr>
+                      <th className="p-4 text-sm font-bold text-gray-600">일자</th>
                       <th className="p-4 text-sm font-bold text-gray-600">시간</th>
                       <th className="p-4 text-sm font-bold text-gray-600">매입처</th>
                       <th className="p-4 text-sm font-bold text-gray-600">상품명</th>
@@ -3039,6 +3223,7 @@ export default function WholesalePOS() {
                   <tbody className="divide-y divide-gray-100">
                     {filteredHistory.map(log => (
                       <tr key={log.id} className="hover:bg-gray-50">
+                        <td className="p-4 text-sm text-gray-600">{log.date}</td>
                         <td className="p-4 text-sm text-gray-600">{log.time}</td>
                         <td className="p-4 text-sm font-bold text-gray-800">{log.supplier}</td>
                         <td className="p-4 text-sm text-blue-600 font-bold cursor-pointer hover:underline" onClick={() => {
@@ -3062,7 +3247,14 @@ export default function WholesalePOS() {
                         <td className={`p-4 text-sm font-bold text-right ${log.qty > 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {log.qty > 0 ? '+' : ''}{log.qty}장
                         </td>
-                        <td className="p-4 text-sm text-center">
+                        <td className="p-4 text-sm text-center space-x-1 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => openRestockEditModal(log)}
+                            className="text-blue-600 border border-blue-200 bg-blue-50 px-2 py-1 rounded text-xs hover:bg-blue-100 font-bold transition"
+                          >
+                            수정
+                          </button>
                           <button onClick={() => handleDeleteRestock(log.id)} className="text-red-500 border border-red-200 bg-red-50 px-2 py-1 rounded text-xs hover:bg-red-100 font-bold transition">
                             삭제
                           </button>
@@ -3070,12 +3262,12 @@ export default function WholesalePOS() {
                       </tr>
                     ))}
                     {filteredHistory.length === 0 && (
-                      <tr><td colSpan="7" className="p-8 text-center text-gray-500">해당 날짜의 내역이 없습니다.</td></tr>
+                      <tr><td colSpan="8" className="p-8 text-center text-gray-500">해당 날짜의 내역이 없습니다.</td></tr>
                     )}
                   </tbody>
                   <tfoot className="bg-gray-50 border-t-2 border-gray-200 sticky bottom-0 z-10 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
                     <tr>
-                      <td colSpan="5" className="p-4 text-sm font-bold text-center text-gray-800">총 입고 합계 (반품 반영)</td>
+                      <td colSpan="6" className="p-4 text-sm font-bold text-center text-gray-800">총 입고 합계 (반품 반영)</td>
                       <td className={`p-4 text-sm font-bold text-right ${dailyTotalRestockQty >= 0 ? 'text-green-700' : 'text-red-600'}`}>{dailyTotalRestockQty}장</td>
                       <td className="p-4"></td>
                     </tr>
@@ -3136,6 +3328,12 @@ export default function WholesalePOS() {
       setSalesReportSort({ key, direction });
     };
 
+    const goToBusinessToday = () => {
+      const d = getDefaultTransactionDateStr();
+      setReportDate(d);
+      setReportMonth(d.substring(0, 7));
+    };
+
     const getDayOfWeek = (dateStr) => {
       const days = ['일', '월', '화', '수', '목', '금', '토'];
       return days[new Date(dateStr).getDay()];
@@ -3188,8 +3386,10 @@ export default function WholesalePOS() {
                       className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
                     />
                     <button 
-                      onClick={() => setReportDate(today)}
+                      type="button"
+                      onClick={() => setReportDate(getDefaultTransactionDateStr())}
                       className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition shadow-sm"
+                      title="22시 이후는 익일 매출일자로 맞춤"
                     >
                       오늘
                     </button>
@@ -3296,11 +3496,10 @@ export default function WholesalePOS() {
                       className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
                     />
                     <button 
-                      onClick={() => {
-                        setReportDate(today);
-                        setReportMonth(today.substring(0, 7));
-                      }}
+                      type="button"
+                      onClick={goToBusinessToday}
                       className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition shadow-sm"
+                      title="22시 이후는 익일 매출일자 기준으로 이번 달"
                     >
                       이번 달
                     </button>
@@ -3404,11 +3603,10 @@ export default function WholesalePOS() {
                       className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
                     />
                     <button 
-                      onClick={() => {
-                        setReportDate(today);
-                        setReportMonth(today.substring(0, 7));
-                      }}
+                      type="button"
+                      onClick={goToBusinessToday}
                       className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition shadow-sm"
+                      title="22시 이후는 익일 매출일자 기준으로 이번 달"
                     >
                       이번 달
                     </button>
@@ -3650,7 +3848,7 @@ export default function WholesalePOS() {
                 </button>
               )}
             </div>
-            <button onClick={() => navigateTo('addCustomer')} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-blue-700 shadow-sm h-[38px]">
+            <button onClick={openAddCustomerModal} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-blue-700 shadow-sm h-[38px]">
               <Plus size={18} className="mr-2"/> 신규 등록
             </button>
           </div>
@@ -3762,7 +3960,7 @@ export default function WholesalePOS() {
     );
   };
 
-  const renderCustomerDetailView = () => {
+  const renderCustomerDetailView = ({ inModal = false } = {}) => {
     if (!selectedCustomerDetail) return null;
 
     const handleSaveEdit = () => {
@@ -3825,7 +4023,7 @@ export default function WholesalePOS() {
     const totalAccumulated = customerTotalSales[selectedCustomerDetail.name] || 0;
 
     return (
-      <div className="px-6 pb-6 pt-2 h-full flex flex-col">
+      <div className={inModal ? 'p-5 flex flex-col min-h-0' : 'px-6 pb-6 pt-2 h-full flex flex-col'}>
         <div className="flex items-center justify-between mb-6 shrink-0">
           <div className="flex items-center">
             <h2 className="text-2xl font-bold text-gray-800">거래처 상세 정보</h2>
@@ -3847,7 +4045,7 @@ export default function WholesalePOS() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col overflow-hidden">
           {customerDetailEditMode ? (
-            <div className="space-y-6 overflow-y-auto pr-2" onScroll={handleContainerScroll} ref={mainScrollRef}>
+            <div className={`space-y-6 pr-2 ${inModal ? '' : 'overflow-y-auto'}`} onScroll={inModal ? undefined : handleContainerScroll} ref={inModal ? undefined : mainScrollRef}>
               <div className="flex items-center space-x-6 pb-4 border-b border-gray-100">
                 <span className="text-sm font-bold text-gray-700">업체 구분</span>
                 <label className="flex items-center space-x-2 cursor-pointer">
@@ -3874,7 +4072,7 @@ export default function WholesalePOS() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">보유 잔고 (원)</label>
-                  <input type="number" value={customerEditForm.balance} onChange={e => setCustomerEditForm({...customerEditForm, balance: e.target.value})} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-600" />
+                  <input type="number" value={customerEditForm.balance} onChange={e => setCustomerEditForm({...customerEditForm, balance: e.target.value})} onWheel={preventMoneyInputWheel} className="input-money-no-spin w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-600" />
                 </div>
               </div>
               <div>
@@ -3972,7 +4170,7 @@ export default function WholesalePOS() {
     );
   };
 
-  const renderAddCustomerView = () => {
+  const renderAddCustomerView = ({ inModal = false } = {}) => {
     const handleAddCustomerChange = (e) => {
       const { name, value } = e.target;
       if (name === 'phone') {
@@ -4003,7 +4201,8 @@ export default function WholesalePOS() {
 
       showAlert(`[${addCustomerForm.name}] 거래처가 성공적으로 등록되었습니다.\n(거래처코드: ${newId})`, () => {
         setAddCustomerForm({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
-        goBack();
+        if (inModal) closeAddCustomerModal();
+        else goBack();
       });
     };
 
@@ -4024,12 +4223,16 @@ export default function WholesalePOS() {
       }
     };
 
+    const cancelAddCustomer = inModal ? closeAddCustomerModal : goBack;
+
     return (
-      <div className="px-6 pb-6 pt-2 overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
-        <div className="flex items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">신규 거래처 등록</h2>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl">
+      <div className={inModal ? '' : 'px-6 pb-6 pt-2 overflow-y-auto'} onScroll={!inModal ? handleContainerScroll : undefined} ref={!inModal ? mainScrollRef : undefined}>
+        {!inModal && (
+          <div className="flex items-center mb-6">
+            <h2 className="text-2xl font-bold text-gray-800">신규 거래처 등록</h2>
+          </div>
+        )}
+        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-6 ${inModal ? 'border-0 shadow-none' : 'max-w-2xl'}`}>
           <form onSubmit={handleSubmit} onKeyDown={handleCustomerFormKeyDown} className="space-y-6">
             <div className="flex items-center space-x-6 pb-4 border-b border-gray-100">
               <span className="text-sm font-bold text-gray-700">업체 구분</span>
@@ -4049,7 +4252,7 @@ export default function WholesalePOS() {
             </div>
             <div><label className="block text-sm font-medium text-gray-700 mb-2">메모 (참고사항)</label><textarea name="memo" lang="ko" style={{ imeMode: 'active' }} value={addCustomerForm.memo} onChange={handleAddCustomerChange} rows="3" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="엔터키는 줄바꿈, 다음 칸 이동은 탭(Tab)키를 이용하세요."></textarea></div>
             <div className="flex justify-end space-x-3 pt-4 border-t">
-              <button type="button" onClick={goBack} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium" tabIndex="-1">취소</button>
+              <button type="button" onClick={cancelAddCustomer} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium" tabIndex="-1">취소</button>
               <button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-md">거래처 등록</button>
             </div>
           </form>
@@ -4456,7 +4659,7 @@ export default function WholesalePOS() {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">금액 (원)</label>
-                  <input type="number" value={cashForm.amount} onChange={(e) => setCashForm({...cashForm, amount: e.target.value})} placeholder="예) 50000" className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold" />
+                  <input type="number" value={cashForm.amount} onChange={(e) => setCashForm({...cashForm, amount: e.target.value})} onWheel={preventMoneyInputWheel} placeholder="예) 50000" className="input-money-no-spin w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">메모 (적요)</label>
@@ -4618,18 +4821,254 @@ export default function WholesalePOS() {
       case 'salesReport': return renderSalesReportView();
       case 'productStats': return renderProductStatsView();
       case 'inventory': return renderInventoryView();
-      case 'productDetail': return renderProductDetailView();
-      case 'addProduct': return renderAddProductView();
       case 'restockHistory': return renderRestockHistoryView();
       case 'customers': return renderCustomerView();
-      case 'customerDetail': return renderCustomerDetailView();
-      case 'addCustomer': return renderAddCustomerView();
       case 'misong': return renderMisongView();
       case 'cash': return renderCashView(); 
       case 'notice': return renderNoticeView(); 
       case 'settings': return renderSettingsView();
       default: return renderDashboardView();
     }
+  };
+
+
+  const renderProductDetailModal = () => {
+    if (!productDetailModalOpen || !selectedProduct) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4" onClick={closeProductDetailModal}>
+        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
+            {renderProductDetailView({ inModal: true })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomerDetailModal = () => {
+    if (!customerDetailModalOpen || !selectedCustomerDetail) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4" onClick={closeCustomerDetailModal}>
+        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
+            {renderCustomerDetailView({ inModal: true })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAddProductModal = () => {
+    if (!addProductModalOpen) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4" onClick={closeAddProductModal}>
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
+          <div className="px-6 py-4 border-b shrink-0 flex items-center justify-between bg-gradient-to-r from-slate-800 to-slate-700">
+            <h2 className="text-lg font-bold text-white">신규 상품 등록</h2>
+            <button type="button" onClick={closeAddProductModal} className="rounded-full p-2 text-slate-300 hover:bg-white/10 hover:text-white transition"><X size={20} /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gray-50/50" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
+            {renderAddProductView({ inModal: true })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAddCustomerModal = () => {
+    if (!addCustomerModalOpen) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4" onClick={closeAddCustomerModal}>
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
+          <div className="px-6 py-4 border-b shrink-0 flex items-center justify-between bg-gray-50">
+            <h2 className="text-lg font-bold text-gray-800">신규 거래처 등록</h2>
+            <button type="button" onClick={closeAddCustomerModal} className="rounded-full p-2 text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition"><X size={20} /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
+            {renderAddCustomerView({ inModal: true })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRestockEditModal = () => {
+    if (!restockEditForm) return null;
+    const suppliers = customers.filter((c) => c.type === '매입처');
+    const qtyLabel =
+      restockEditForm.type === '매입처반품'
+        ? '반품 수량'
+        : restockEditForm.type === '초기입고'
+          ? '초기 입고 수량'
+          : '입고 수량';
+    const typeBadgeClass =
+      restockEditForm.type === '초기입고'
+        ? 'bg-indigo-100 text-indigo-800 ring-indigo-200'
+        : restockEditForm.type === '매입처반품'
+          ? 'bg-red-100 text-red-800 ring-red-200'
+          : 'bg-emerald-100 text-emerald-800 ring-emerald-200';
+    const fieldClass =
+      'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg bg-white outline-none transition focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400';
+    const labelClass = 'block text-xs font-bold text-gray-500 mb-1.5';
+
+    return (
+      <div
+        className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
+        onClick={closeRestockEditModal}
+      >
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-4 shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-white">
+                <Inbox size={22} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white">입고 내역 수정</h2>
+                <p className="text-xs text-slate-300 mt-0.5">상품·입고 정보를 함께 수정합니다</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={closeRestockEditModal}
+              className="rounded-full p-2 text-slate-300 hover:bg-white/10 hover:text-white transition"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 bg-slate-50/60">
+            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm flex flex-wrap items-center gap-3">
+              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ring-1 ring-inset ${typeBadgeClass}`}>
+                {restockEditForm.type}
+              </span>
+              <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">{restockEditForm.productId}</span>
+              <span className="text-sm text-gray-600 ml-auto flex items-center gap-1">
+                <Calendar size={14} className="text-gray-400" />
+                {restockEditForm.date}
+                {restockEditForm.time && <span className="text-gray-400">· {restockEditForm.time}</span>}
+              </span>
+            </div>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2 pb-2 border-b border-gray-100">
+                <CalendarDays size={16} className="text-blue-600" />
+                입고 정보
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>입고 일자</label>
+                  <input type="date" name="date" value={restockEditForm.date} onChange={handleRestockEditFormChange} className={fieldClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>입고 시간</label>
+                  <input type="time" name="time" value={restockEditForm.time} onChange={handleRestockEditFormChange} className={fieldClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>매입처</label>
+                  <select name="supplierId" value={restockEditForm.supplierId} onChange={handleRestockEditFormChange} className={fieldClass}>
+                    <option value="">자체제작 / 기타</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>{qtyLabel} (장) *</label>
+                  <input type="number" name="qty" min="1" value={restockEditForm.qty} onChange={handleRestockEditFormChange} className={`${fieldClass} font-bold tabular-nums`} />
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2 pb-2 border-b border-gray-100">
+                <Package size={16} className="text-blue-600" />
+                상품 정보
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>노출용 상품명 *</label>
+                  <input type="text" name="name" lang="ko" style={{ imeMode: 'active' }} value={restockEditForm.name} onChange={handleRestockEditFormChange} className={fieldClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>관리용 상품명</label>
+                  <input type="text" name="adminName" lang="ko" style={{ imeMode: 'active' }} value={restockEditForm.adminName} onChange={handleRestockEditFormChange} className={fieldClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>분류</label>
+                  <select name="category" value={restockEditForm.category} onChange={handleRestockEditFormChange} className={fieldClass}>
+                    <option value="상의">상의</option>
+                    <option value="하의">하의</option>
+                    <option value="세트">세트</option>
+                    <option value="아우터">아우터</option>
+                    <option value="기타">기타</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>색상</label>
+                  <input type="text" name="color" lang="ko" style={{ imeMode: 'active' }} value={restockEditForm.color} onChange={handleRestockEditFormChange} className={fieldClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>사이즈</label>
+                  <select name="size" value={restockEditForm.size} onChange={handleRestockEditFormChange} className={fieldClass}>
+                    <option value="Free">Free</option>
+                    <option value="S">S</option>
+                    <option value="M">M</option>
+                    <option value="L">L</option>
+                    <option value="XL">XL</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>도매단가 (원) *</label>
+                  <input type="number" name="price" value={restockEditForm.price} onChange={handleRestockEditFormChange} onWheel={preventMoneyInputWheel} className={`input-money-no-spin ${fieldClass} font-medium tabular-nums`} />
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2 pb-2 border-b border-gray-100">
+                <Tag size={16} className="text-blue-600" />
+                상세 정보
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>제조국</label>
+                  <input type="text" name="origin" lang="ko" style={{ imeMode: 'active' }} value={restockEditForm.origin} onChange={handleRestockEditFormChange} className={fieldClass} placeholder="예) 대한민국" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>혼용률</label>
+                  <input type="text" name="material" lang="ko" style={{ imeMode: 'active' }} value={restockEditForm.material} onChange={handleRestockEditFormChange} className={fieldClass} placeholder="예) 면 80%, 폴리 20%" />
+                </div>
+              </div>
+            </section>
+
+            <div className="flex gap-2 rounded-lg border border-blue-100 bg-blue-50/80 px-4 py-3 text-xs text-blue-800">
+              <AlertCircle size={16} className="shrink-0 mt-0.5 text-blue-600" />
+              <p>수량을 변경하면 현재 재고에 차이만큼 자동 반영됩니다. 이미지는 상품 관리에서 수정할 수 있습니다.</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200 bg-white shrink-0">
+            <button
+              type="button"
+              onClick={closeRestockEditModal}
+              className="px-5 py-2.5 rounded-lg border border-gray-300 text-gray-700 text-sm font-bold hover:bg-gray-50 transition"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveRestockEdit}
+              className="px-6 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 shadow-md shadow-blue-600/25 transition"
+            >
+              변경사항 저장
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   // 거래 상세 내역 팝업 렌더링 함수 추가
@@ -4751,7 +5190,7 @@ export default function WholesalePOS() {
           </div>
           
           <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-            {menuOrder.map((menuId, index) => {
+            {visibleMenuOrder.map((menuId, index) => {
               const { label, Icon } = MENU_CONFIG[menuId];
               return (
                 <button 
@@ -4810,6 +5249,11 @@ export default function WholesalePOS() {
       </div>
       
       {/* 상세 거래 내역 모달 (전역 알림/확인보다 아래 z-index) */}
+      {renderProductDetailModal()}
+      {renderCustomerDetailModal()}
+      {renderAddProductModal()}
+      {renderAddCustomerModal()}
+      {renderRestockEditModal()}
       {renderSaleDetailModal()}
       
       {/* 팝업 모달: 다른 오버레이 위에 표시되도록 마지막 렌더 + 높은 z-index */}
