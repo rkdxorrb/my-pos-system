@@ -508,6 +508,7 @@ export default function WholesalePOS() {
   
   const [inventorySearchQuery, setInventorySearchQuery] = useState('');
   const [inventoryTab, setInventoryTab] = useState('active');
+  const [inventorySelectedIds, setInventorySelectedIds] = useState(() => new Set());
   const [addProductForm, setAddProductForm] = useState({ name: '', adminName: '', category: '상의', color: '', size: 'Free', price: '', stock: '', material: '', origin: '', image: '', supplierId: '', date: getTodayStr() });
   
   const [productDetailEditMode, setProductDetailEditMode] = useState(false);
@@ -1496,7 +1497,7 @@ export default function WholesalePOS() {
           .divider-solid { border-bottom: 1.5px solid #000; margin: 10px 0; }
           .customer-info { font-weight: 900; font-size: 14px; margin: 10px 0; color: #000; }
           .items-header { font-weight: 900; font-size: 13px; margin: 8px 0 10px; color: #000; }
-          .items-count { font-size: 12px; font-weight: 700; color: #333; }
+          .items-count { font-size: 12px; font-weight: 900; color: #000; }
           .item { margin-bottom: 10px; }
           .item-name { font-weight: 900; font-size: 12px; margin-bottom: 2px; color: #000; }
           .item-no { display: inline-block; min-width: 1.4em; margin-right: 2px; }
@@ -1542,6 +1543,8 @@ export default function WholesalePOS() {
       showAlert(`[${product.name}] 상품이 ${actionText} 처리되었습니다.`);
     });
   };
+
+  const getNewProductGroupId = () => `grp_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
   const handleDeleteProduct = (id) => {
     showConfirm('해당 상품을 정말 삭제하시겠습니까?\n(삭제 시 관련된 다른 내역에 영향을 줄 수 있습니다)', () => {
@@ -2617,6 +2620,121 @@ export default function WholesalePOS() {
       );
     });
 
+    const groupMinIdByGroupId = {};
+    products.forEach((p) => {
+      if (!p.groupId) return;
+      const n = Number(p.id);
+      if (Number.isNaN(n)) return;
+      if (groupMinIdByGroupId[p.groupId] === undefined || n < groupMinIdByGroupId[p.groupId]) {
+        groupMinIdByGroupId[p.groupId] = n;
+      }
+    });
+
+    const sortedInventory = [...filteredInventory].sort((a, b) => {
+      const aIdNum = Number(a.id);
+      const bIdNum = Number(b.id);
+      const aKey = a.groupId && groupMinIdByGroupId[a.groupId] !== undefined ? groupMinIdByGroupId[a.groupId] : aIdNum;
+      const bKey = b.groupId && groupMinIdByGroupId[b.groupId] !== undefined ? groupMinIdByGroupId[b.groupId] : bIdNum;
+
+      if (!Number.isNaN(aKey) && !Number.isNaN(bKey) && aKey !== bKey) return aKey - bKey;
+
+      // 같은 그룹은 코드 순으로
+      if (a.groupId && b.groupId && a.groupId === b.groupId) {
+        if (!Number.isNaN(aIdNum) && !Number.isNaN(bIdNum) && aIdNum !== bIdNum) return aIdNum - bIdNum;
+      }
+
+      // 기본은 코드 순
+      if (!Number.isNaN(aIdNum) && !Number.isNaN(bIdNum) && aIdNum !== bIdNum) return aIdNum - bIdNum;
+      return String(a.id).localeCompare(String(b.id), undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    const filteredIds = sortedInventory.map((p) => p.id);
+    const selectedCount = inventorySelectedIds.size;
+    const canGroup = selectedCount >= 2;
+    const canUngroup = selectedCount >= 1;
+
+    const toggleInventorySelect = (id, nextChecked) => {
+      setInventorySelectedIds((prev) => {
+        const next = new Set(prev);
+        if (nextChecked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    };
+
+    const toggleInventorySelectAll = (nextChecked) => {
+      setInventorySelectedIds((prev) => {
+        const next = new Set(prev);
+        if (nextChecked) filteredIds.forEach((id) => next.add(id));
+        else filteredIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    };
+
+    const handleGroupSelectedProducts = () => {
+      const ids = Array.from(inventorySelectedIds);
+      if (ids.length < 2) return;
+      const groupId = getNewProductGroupId();
+      showConfirm(
+        `선택한 ${ids.length}개 상품을 그룹으로 묶을까요?\n(그룹 내에서는 상품명/사이즈/가격 정보가 함께 변경됩니다.)`,
+        () => {
+          const nextProducts = products.map((p) => (ids.includes(p.id) ? { ...p, groupId } : p));
+          setProducts(nextProducts);
+          ids.forEach((id) => {
+            const updated = nextProducts.find((p) => p.id === id);
+            if (updated) saveItem('products', updated);
+          });
+          setInventorySelectedIds(new Set());
+          showAlert(`그룹 설정 완료 (${ids.length}개)`);
+        }
+      );
+    };
+
+    const handleUngroupSelectedProducts = () => {
+      const ids = Array.from(inventorySelectedIds);
+      if (ids.length < 1) return;
+      showConfirm(`선택한 ${ids.length}개 상품의 그룹을 해제할까요?`, () => {
+        const nextProducts = products.map((p) => (ids.includes(p.id) ? { ...p, groupId: null } : p));
+        setProducts(nextProducts);
+        ids.forEach((id) => {
+          const updated = nextProducts.find((p) => p.id === id);
+          if (updated) saveItem('products', updated);
+        });
+        showAlert(`그룹 해제 완료 (${ids.length}개)`);
+      });
+    };
+
+    const getGroupOuterCellClass = (idx, edge) => {
+      const p = sortedInventory[idx];
+      if (!p?.groupId) return '';
+      const prev = sortedInventory[idx - 1];
+      const next = sortedInventory[idx + 1];
+      const isFirst = !prev || prev.groupId !== p.groupId;
+      const isLast = !next || next.groupId !== p.groupId;
+
+      // 테두리는 "그룹 외곽"만: 왼쪽 끝 셀/오른쪽 끝 셀에만 좌우 테두리 적용
+      const borderSide =
+        edge === 'left' ? 'border-l-2' : edge === 'right' ? 'border-r-2' : '';
+
+      const roundTL = edge === 'left' && isFirst ? 'rounded-tl-lg' : '';
+      const roundBL = edge === 'left' && isLast ? 'rounded-bl-lg' : '';
+      const roundTR = edge === 'right' && isFirst ? 'rounded-tr-lg' : '';
+      const roundBR = edge === 'right' && isLast ? 'rounded-br-lg' : '';
+
+      return [
+        'border-indigo-300',
+        borderSide,
+        isFirst ? 'border-t-2' : '',
+        isLast ? 'border-b-2' : '',
+        roundTL,
+        roundBL,
+        roundTR,
+        roundBR,
+      ]
+        .filter(Boolean)
+        .join(' ');
+    };
+
     return (
       <div className="p-6 h-full flex flex-col">
         <div className="flex justify-between items-center mb-6 shrink-0">
@@ -2667,11 +2785,61 @@ export default function WholesalePOS() {
             )}
           </div>
         </div>
+        <div className="mb-3 shrink-0 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            선택: <span className="font-black text-gray-900 tabular-nums">{selectedCount}</span>개
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleGroupSelectedProducts}
+              disabled={!canGroup}
+              className={`px-3 py-2 rounded-md font-bold text-sm border shadow-sm transition ${
+                canGroup
+                  ? 'bg-indigo-600 text-white border-indigo-700 hover:bg-indigo-500'
+                  : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+              }`}
+            >
+              그룹설정
+            </button>
+            <button
+              type="button"
+              onClick={handleUngroupSelectedProducts}
+              disabled={!canUngroup}
+              className={`px-3 py-2 rounded-md font-bold text-sm border shadow-sm transition ${
+                canUngroup
+                  ? 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                  : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+              }`}
+            >
+              그룹해제
+            </button>
+            <button
+              type="button"
+              onClick={() => setInventorySelectedIds(new Set())}
+              disabled={selectedCount === 0}
+              className={`px-3 py-2 rounded-md font-bold text-sm border transition ${
+                selectedCount > 0
+                  ? 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                  : 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed'
+              }`}
+            >
+              선택해제
+            </button>
+          </div>
+        </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex-1 overflow-hidden flex flex-col">
           <div className="flex-1 overflow-y-auto pb-28" onScroll={handleContainerScroll} ref={mainScrollRef}>
             <table className="w-full text-left relative">
               <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                 <tr>
+                  <th className="p-4 text-sm font-bold text-gray-600 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredIds.length > 0 && filteredIds.every((id) => inventorySelectedIds.has(id))}
+                      onChange={(e) => toggleInventorySelectAll(e.target.checked)}
+                    />
+                  </th>
                   <th className="p-4 text-sm font-bold text-gray-600">상품코드</th>
                   <th className="p-4 text-sm font-bold text-gray-600">상품명 (노출용 / 관리용)</th>
                   <th className="p-4 text-sm font-bold text-gray-600">색상</th>
@@ -2682,13 +2850,91 @@ export default function WholesalePOS() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredInventory.map(p => (
-                  <tr key={p.id} className={`transition-colors ${p.isEnded ? 'bg-amber-50 opacity-90' : (p.stock === 0 ? 'bg-red-50 opacity-90' : 'hover:bg-blue-50/50')}`}>
-                    <td className="p-4 text-sm font-medium text-gray-900">
-                      {p.id}
-                      {p.isEnded && <span className="block mt-1 bg-amber-200 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold w-max">종료상품</span>}
-                    </td>
-                    <td className="p-4">
+                {sortedInventory.map((p, idx) => {
+                  const next = sortedInventory[idx + 1];
+                  const prevRow = sortedInventory[idx - 1];
+                  const inGroup = !!p.groupId;
+                  const isFirstRowOfGroup = inGroup && (!prevRow || prevRow.groupId !== p.groupId);
+                  const isLastRowOfGroup = inGroup && (!next || next.groupId !== p.groupId);
+
+                  const groupEdgeCommonClass = inGroup
+                    ? [
+                        'border-indigo-300',
+                        isFirstRowOfGroup ? 'border-t-2' : '',
+                        isLastRowOfGroup ? 'border-b-2' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+                    : '';
+
+                  const leftOuter = inGroup
+                    ? [
+                        groupEdgeCommonClass,
+                        'border-l-2',
+                        isFirstRowOfGroup ? 'rounded-tl-lg' : '',
+                        isLastRowOfGroup ? 'rounded-bl-lg' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+                    : '';
+
+                  const rightOuter = inGroup
+                    ? [
+                        groupEdgeCommonClass,
+                        'border-r-2',
+                        isFirstRowOfGroup ? 'rounded-tr-lg' : '',
+                        isLastRowOfGroup ? 'rounded-br-lg' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+                    : '';
+
+                  const middleOuter = inGroup ? groupEdgeCommonClass : '';
+                  const rowBaseClass = `transition-colors ${
+                    p.isEnded
+                      ? 'bg-amber-50 opacity-90'
+                      : p.stock === 0
+                        ? 'bg-red-50 opacity-90'
+                        : 'hover:bg-blue-50/50'
+                  }`;
+                  const rowGroupBg = p.groupId ? 'bg-indigo-50/30' : '';
+
+                  const prev = prevRow;
+                  const needsGapRow =
+                    !!prev?.groupId && !!p.groupId && prev.groupId !== p.groupId;
+
+                  return (
+                    <Fragment key={p.id}>
+                      {needsGapRow && (
+                        <tr aria-hidden>
+                          <td colSpan="8" className="h-2 bg-transparent"></td>
+                        </tr>
+                      )}
+                      <tr
+                        className={`${rowBaseClass} ${rowGroupBg} cursor-pointer`}
+                        onClick={(e) => {
+                          const interactive = e.target.closest('button, a, input, select, textarea');
+                          if (interactive) return;
+                          toggleInventorySelect(p.id, !inventorySelectedIds.has(p.id));
+                        }}
+                      >
+                        <td
+                          className={`p-4 text-center align-top ${leftOuter}`}
+                          onClick={() => toggleInventorySelect(p.id, !inventorySelectedIds.has(p.id))}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={inventorySelectedIds.has(p.id)}
+                            onChange={(e) => toggleInventorySelect(p.id, e.target.checked)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </td>
+                        <td className={`p-4 text-sm font-medium text-gray-900 ${middleOuter}`} onClick={(e) => e.stopPropagation()}>
+                          {p.id}
+                          {p.isEnded && <span className="block mt-1 bg-amber-200 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold w-max">종료상품</span>}
+                          {p.groupId && <span className="block mt-1 bg-indigo-100 text-indigo-700 text-[10px] px-1.5 py-0.5 rounded font-bold w-max">그룹</span>}
+                        </td>
+                        <td className={`p-4 ${middleOuter}`}>
                       <div className="flex items-center space-x-3">
                         {p.image ? (
                           <img src={p.image} alt={p.name} className={`w-10 h-14 object-cover rounded shadow-sm flex-shrink-0 ${(p.stock === 0 || p.isEnded) ? 'grayscale' : ''}`} />
@@ -2699,7 +2945,7 @@ export default function WholesalePOS() {
                         )}
                         <div 
                           className="cursor-pointer group"
-                          onClick={() => handleGoToProductDetail(p)}
+                          onClick={(e) => { e.stopPropagation(); handleGoToProductDetail(p); }}
                         >
                           <span className={`text-sm font-bold group-hover:underline flex items-center ${p.isEnded ? 'text-amber-800' : 'text-blue-600'}`}>
                             {p.name}
@@ -2708,11 +2954,11 @@ export default function WholesalePOS() {
                           {p.adminName && <p className="text-xs text-gray-400 mt-0.5">{p.adminName}</p>}
                         </div>
                       </div>
-                    </td>
-                    <td className="p-4 text-sm text-gray-600">{p.color}</td>
-                    <td className="p-4 text-sm text-gray-600">{p.size}</td>
+                        </td>
+                        <td className={`p-4 text-sm text-gray-600 ${middleOuter}`} onClick={(e) => e.stopPropagation()}>{p.color}</td>
+                        <td className={`p-4 text-sm text-gray-600 ${middleOuter}`} onClick={(e) => e.stopPropagation()}>{p.size}</td>
                     
-                    <td className="p-4 text-sm font-medium">
+                        <td className={`p-4 text-sm font-medium ${middleOuter}`} onClick={(e) => e.stopPropagation()}>
                       {p.salePrice && p.salePrice < p.price ? (
                         <div className="flex flex-col">
                           <span className="text-xs text-gray-400 line-through">₩ {p.price.toLocaleString()}</span>
@@ -2721,25 +2967,27 @@ export default function WholesalePOS() {
                       ) : (
                         <span>₩ {p.price.toLocaleString()}</span>
                       )}
-                    </td>
+                        </td>
 
-                    <td className="p-4">
+                        <td className={`p-4 ${middleOuter}`} onClick={(e) => e.stopPropagation()}>
                       <span className={`px-2 py-1 rounded-full text-xs font-bold ${p.isEnded ? 'bg-amber-200 text-amber-800 border border-amber-300' : (p.stock === 0 ? 'bg-red-100 text-red-700 border border-red-200' : p.stock < 20 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700')}`}>
                         {p.stock === 0 ? '품절' : `${p.stock} 장`}
                       </span>
-                    </td>
-                    <td className="p-4 text-sm text-center whitespace-nowrap">
-                      <button onClick={() => handleToggleEndProduct(p)} className={`font-medium px-3 py-1.5 rounded mr-2 border shadow-sm ${p.isEnded ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'}`}>
+                        </td>
+                        <td className={`p-4 text-sm text-center whitespace-nowrap ${rightOuter}`} onClick={(e) => e.stopPropagation()}>
+                      <button onClick={(e) => { e.stopPropagation(); handleToggleEndProduct(p); }} className={`font-medium px-3 py-1.5 rounded mr-2 border shadow-sm ${p.isEnded ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'}`}>
                         {p.isEnded ? '판매재개' : '종료처리'}
                       </button>
-                      <button onClick={() => handleGoToProductDetail(p, true)} className="text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-3 py-1.5 rounded mr-2 border border-blue-100">수정</button>
-                      <button onClick={() => handleDeleteProduct(p.id)} className="text-red-500 hover:text-red-700 font-medium bg-red-50 px-3 py-1.5 rounded border border-red-100">삭제</button>
-                    </td>
-                  </tr>
-                ))}
+                      <button onClick={(e) => { e.stopPropagation(); handleGoToProductDetail(p, true); }} className="text-blue-600 hover:text-blue-800 font-medium bg-blue-50 px-3 py-1.5 rounded mr-2 border border-blue-100">수정</button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteProduct(p.id); }} className="text-red-500 hover:text-red-700 font-medium bg-red-50 px-3 py-1.5 rounded border border-red-100">삭제</button>
+                        </td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
                 {filteredInventory.length === 0 && (
                   <tr>
-                    <td colSpan="7" className="p-8 text-center text-gray-500">
+                    <td colSpan="8" className="p-8 text-center text-gray-500">
                       {inventorySearchQuery
                         ? '검색 결과가 없습니다.'
                         : isEndedTab
@@ -3159,6 +3407,26 @@ export default function WholesalePOS() {
         syncProductLabelsAcrossRecords(updated.id, updated);
       }
 
+      if (updated.groupId) {
+        const sharedPatch = {
+          name: updated.name,
+          adminName: updated.adminName,
+          size: updated.size,
+          price: updated.price,
+          salePrice: updated.salePrice,
+          customerPrices: { ...(updated.customerPrices || {}) },
+        };
+        const nextProducts = products.map((p) => {
+          if (p.id === updated.id) return p;
+          if (!p.groupId || p.groupId !== updated.groupId) return p;
+          return { ...p, ...sharedPatch };
+        });
+        setProducts(nextProducts);
+        nextProducts.forEach((p) => {
+          if (p.id !== updated.id && p.groupId === updated.groupId) saveItem('products', p);
+        });
+      }
+
       showAlert('상품 정보가 성공적으로 수정되었습니다.');
     };
 
@@ -3386,6 +3654,16 @@ export default function WholesalePOS() {
                       })}
                     </ul>
                   )}
+                </div>
+
+                <div className="mt-6 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSaveEdit}
+                    className="px-5 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-md transition"
+                  >
+                    수정사항 저장
+                  </button>
                 </div>
               </div>
             ) : (
@@ -4345,12 +4623,14 @@ export default function WholesalePOS() {
                         ? 'bg-red-500'
                         : SALES_STATS_BAR_PALETTE[idx % SALES_STATS_BAR_PALETTE.length];
                       const amountLabel = row.isFuture
-                        ? '—'
-                        : useCompactAmount
-                          ? formatCompactWon(row.netSales)
-                          : row.netSales === 0
-                            ? '—'
-                            : `₩${row.netSales.toLocaleString()}`;
+                        ? ''
+                        : isDailyChart
+                          ? (row.netSales === 0 ? '' : `₩${row.netSales}`)
+                          : useCompactAmount
+                            ? formatCompactWon(row.netSales)
+                            : row.netSales === 0
+                              ? '—'
+                              : `₩${row.netSales.toLocaleString()}`;
                   return (
                     <div
                       key={row.label}
@@ -4385,10 +4665,10 @@ export default function WholesalePOS() {
                             </div>
                             <div
                               className={`whitespace-nowrap font-black tabular-nums ${
-                                isDailyChart ? 'text-[9px] sm:text-[10px]' : 'text-[10px] sm:text-[11px]'
+                            isDailyChart ? 'text-[8px] sm:text-[9px] tracking-tight' : 'text-[10px] sm:text-[11px]'
                               } ${row.isFuture ? 'text-gray-300' : isNegative ? 'text-red-600' : 'text-blue-700'}`}
                             >
-                              {amountLabel}
+                          {amountLabel || (row.isFuture ? '' : '—')}
                             </div>
                           </div>
                     </div>
