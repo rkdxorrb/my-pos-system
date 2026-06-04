@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Home, ShoppingCart, Package, Users, FileText, 
   DollarSign, Search, Plus, Minus, Trash2, 
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, LineChart, Tag, Upload,
   ChevronUp, ChevronDown, Inbox, Printer, X, CalendarDays, List,
-  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck
+  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge
 } from 'lucide-react';
 
 const DELIVERY_FEE = 4000;
@@ -263,6 +264,188 @@ const formatPhoneHyphens = (input) => {
   if (digits.length <= 3) return digits;
   if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+};
+
+const DUPLICATE_CUSTOMER_NAME_MSG = '같은 이름의 거래처가 이미 등록되어 있습니다.';
+
+const isSalesCustomerType = (c) => !c?.type || c.type === '판매처' || c.type === '매출처';
+
+const customerNamesMatchExactly = (a, b) => {
+  const x = String(a ?? '').trim();
+  const y = String(b ?? '').trim();
+  return x.length > 0 && x === y;
+};
+
+const findCustomerWithExactName = (customerList, name, excludeId = null) => {
+  const trimmed = String(name ?? '').trim();
+  if (!trimmed) return null;
+  return (
+    customerList.find(
+      (c) => c.id !== excludeId && customerNamesMatchExactly(c.name, trimmed)
+    ) || null
+  );
+};
+
+const CustomerMergeSearchPicker = ({ label, selectedId, excludeId, customers, onSelect, focusRingClass }) => {
+  const selected = customers.find((c) => c.id === selectedId);
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [listPos, setListPos] = useState(null);
+  const wrapRef = useRef(null);
+  const anchorRef = useRef(null);
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    if (selected) {
+      setQuery(`${selected.name} (${selected.id})`);
+    }
+  }, [selectedId, selected?.name, selected?.id]);
+
+  const updateListPosition = useCallback(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const preferBelow = spaceBelow >= 160 || spaceBelow >= spaceAbove;
+    const maxHeight = Math.min(320, Math.max(140, preferBelow ? spaceBelow : spaceAbove));
+    setListPos({
+      left: rect.left,
+      width: rect.width,
+      maxHeight,
+      preferBelow,
+      top: preferBelow ? rect.bottom + 4 : rect.top - maxHeight - 4,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setListPos(null);
+      return;
+    }
+    updateListPosition();
+    const onReposition = () => updateListPosition();
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+    };
+  }, [open, query, updateListPosition]);
+
+  useEffect(() => {
+    const onDocClick = (e) => {
+      const t = e.target;
+      if (wrapRef.current?.contains(t)) return;
+      if (listRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const searchRegex = makeChosungRegex(query);
+  const qLower = query.trim().toLowerCase();
+  const qDigits = query.replace(/\s+/g, '');
+
+  const filtered = customers
+    .filter((c) => c.id !== excludeId)
+    .filter((c) => {
+      if (!query.trim()) return true;
+      return (
+        searchRegex.test(c.name) ||
+        c.id.toLowerCase().includes(qLower) ||
+        (c.phone && c.phone.replace(/\s+/g, '').includes(qDigits))
+      );
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+
+  const pickCustomer = (c) => {
+    onSelect(c.id);
+    setQuery(`${c.name} (${c.id})`);
+    setOpen(false);
+  };
+
+  const clearSelection = () => {
+    onSelect('');
+    setQuery('');
+    setOpen(false);
+  };
+
+  const dropdownList =
+    open && listPos
+      ? createPortal(
+          <div
+            ref={listRef}
+            role="listbox"
+            className="fixed z-[200] bg-white border border-gray-200 rounded-lg shadow-xl overflow-y-auto overscroll-contain custom-scrollbar"
+            style={{
+              left: listPos.left,
+              width: listPos.width,
+              top: listPos.top,
+              maxHeight: listPos.maxHeight,
+            }}
+          >
+            {filtered.length === 0 ? (
+              <div className="p-3 text-center text-gray-500 text-sm">검색 결과가 없습니다.</div>
+            ) : (
+              filtered.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="option"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickCustomer(c)}
+                  className={`w-full text-left p-3 border-b last:border-0 hover:bg-gray-50 transition-colors ${
+                    c.id === selectedId ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <span className="font-bold text-gray-800 text-sm">{c.name}</span>
+                  <span className="text-xs text-gray-500 ml-2">{c.id}</span>
+                  {c.phone ? <span className="block text-xs text-gray-400 mt-0.5">{c.phone}</span> : null}
+                </button>
+              ))
+            )}
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <label className="block text-xs font-bold text-gray-600 mb-1">{label}</label>
+      <div ref={anchorRef} className="relative">
+        <Search className="absolute left-3 top-2.5 text-gray-400 pointer-events-none" size={16} />
+        <input
+          type="text"
+          lang="ko"
+          style={{ imeMode: 'active' }}
+          placeholder="업체명·코드·연락처 검색 (초성 가능)"
+          value={query}
+          onChange={(e) => {
+            setQuery(normalizeChosungSearchInput(e.target.value));
+            setOpen(true);
+            if (selectedId) onSelect('');
+          }}
+          onFocus={() => setOpen(true)}
+          className={`w-full pl-9 pr-9 py-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 ${focusRingClass} ${
+            selectedId ? 'bg-blue-50 border-blue-300 font-medium' : 'bg-white'
+          }`}
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={clearSelection}
+            className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+            aria-label="선택 지우기"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+      {dropdownList}
+    </div>
+  );
 };
 
 const MENU_CONFIG = {
@@ -559,6 +742,9 @@ export default function WholesalePOS() {
   const [customerDetailModalOpen, setCustomerDetailModalOpen] = useState(false);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
   const [addCustomerModalOpen, setAddCustomerModalOpen] = useState(false);
+  const [customerMergeModalOpen, setCustomerMergeModalOpen] = useState(false);
+  const [customerMergeKeepId, setCustomerMergeKeepId] = useState('');
+  const [customerMergeRemoveId, setCustomerMergeRemoveId] = useState('');
 
   const [misongTab, setMisongTab] = useState('misong');
   const [transactionDate, setTransactionDate] = useState(() => getDefaultTransactionDateStr());
@@ -1560,6 +1746,129 @@ export default function WholesalePOS() {
       deleteItem('customers', id); 
       if (selectedCustomerDetail?.id === id) closeCustomerDetailModal();
     });
+  };
+
+  const renameCustomerNameInAllRecords = (oldName, newName) => {
+    if (!oldName || oldName === newName) return;
+
+    setDailySales((prev) => {
+      const next = prev.map((sale) => {
+        if (sale.customerName !== oldName) return sale;
+        const newSale = { ...sale, customerName: newName };
+        saveItem('dailySales', newSale);
+        return newSale;
+      });
+      return next;
+    });
+
+    setMisongList((prev) => {
+      const next = prev.map((m) => {
+        if (m.customerName !== oldName) return m;
+        const newM = { ...m, customerName: newName };
+        saveItem('misong', newM);
+        return newM;
+      });
+      return next;
+    });
+
+    setSampleList((prev) => {
+      const next = prev.map((s) => {
+        if (s.customerName !== oldName) return s;
+        const newS = { ...s, customerName: newName };
+        saveItem('samples', newS);
+        return newS;
+      });
+      return next;
+    });
+
+    setRestockHistory((prev) => {
+      const next = prev.map((r) => {
+        if (r.supplier !== oldName) return r;
+        const newR = { ...r, supplier: newName };
+        saveItem('restockHistory', newR);
+        return newR;
+      });
+      return next;
+    });
+  };
+
+  const applyProductChangesAfterCustomerMerge = (keepId, removeId) => {
+    const updatedProducts = products.map((p) => {
+      let next = p;
+      const prices = p.customerPrices;
+      if (prices && Object.prototype.hasOwnProperty.call(prices, removeId)) {
+        const nextPrices = { ...prices };
+        if (!Object.prototype.hasOwnProperty.call(nextPrices, keepId)) {
+          nextPrices[keepId] = nextPrices[removeId];
+        }
+        delete nextPrices[removeId];
+        next = { ...next, customerPrices: nextPrices };
+      }
+      if (p.supplierId === removeId) {
+        next = { ...next, supplierId: keepId };
+      }
+      if (next !== p) saveItem('products', next);
+      return next;
+    });
+    setProducts(updatedProducts);
+  };
+
+  const performMergeCustomers = (keepId, removeId) => {
+    const keep = customers.find((c) => c.id === keepId);
+    const remove = customers.find((c) => c.id === removeId);
+    if (!keep || !remove) {
+      showAlert('선택한 거래처를 찾을 수 없습니다.');
+      return;
+    }
+    if (keepId === removeId) {
+      showAlert('서로 다른 거래처 두 곳을 선택해주세요.');
+      return;
+    }
+    const keepIsSales = isSalesCustomerType(keep);
+    const removeIsSales = isSalesCustomerType(remove);
+    if (keepIsSales !== removeIsSales) {
+      showAlert('판매처와 매입처는 서로 합칠 수 없습니다. 같은 구분의 거래처만 선택해주세요.');
+      return;
+    }
+
+    const removeName = remove.name;
+    const keepName = keep.name;
+
+    const mergedCustomer = {
+      ...keep,
+      balance: Number(keep.balance || 0) + Number(remove.balance || 0),
+      phone: keep.phone || remove.phone || '',
+      bizNum: keep.bizNum || remove.bizNum || '',
+      memo: [keep.memo, remove.memo].filter((m) => m && String(m).trim()).join('\n---\n') || '',
+    };
+
+    if (removeName !== keepName) {
+      renameCustomerNameInAllRecords(removeName, keepName);
+    }
+
+    applyProductChangesAfterCustomerMerge(keepId, removeId);
+
+    setCustomers((prev) => {
+      const next = prev.filter((c) => c.id !== removeId).map((c) => (c.id === keepId ? mergedCustomer : c));
+      return next;
+    });
+    saveItem('customers', mergedCustomer);
+    deleteItem('customers', removeId);
+
+    if (selectedCustomerDetail?.id === removeId) {
+      closeCustomerDetailModal();
+    } else if (selectedCustomerDetail?.id === keepId) {
+      setSelectedCustomerDetail(mergedCustomer);
+      setCustomerEditForm(mergedCustomer);
+    }
+
+    setCustomerMergeModalOpen(false);
+    setCustomerMergeKeepId('');
+    setCustomerMergeRemoveId('');
+
+    showAlert(
+      `[${removeName}] 거래처를 [${keepName}] (으)로 합쳤습니다.\n판매·반품·미송·샘플·입고·상품 차등단가 내역이 모두 통합되었습니다.`
+    );
   };
 
   const performCancelSale = (saleId) => {
@@ -3434,12 +3743,12 @@ export default function WholesalePOS() {
     const discountRate = hasSale ? Math.round((1 - selectedProduct.salePrice / selectedProduct.price) * 100) : 0;
 
     return (
-      <div className={inModal ? 'p-5 flex min-h-0 flex-col' : 'px-6 pb-6 pt-2 flex min-h-0 flex-1 flex-col'}>
-        <div className="flex items-center justify-between mb-6 shrink-0">
-          <div className="flex items-center">
+      <div className={inModal ? 'p-5 flex min-h-0 flex-col w-full max-w-4xl' : 'px-6 pb-6 pt-2 flex min-h-0 flex-1 flex-col'}>
+        <div className="flex items-center justify-between mb-6 shrink-0 gap-3">
+          <div className="flex items-center min-w-0">
             <h2 className="text-2xl font-bold text-gray-800">상품 상세 정보</h2>
           </div>
-          <div className="space-x-2">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
             {productDetailEditMode ? (
               <>
                 <button onClick={() => setProductDetailEditMode(false)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">취소</button>
@@ -3461,10 +3770,15 @@ export default function WholesalePOS() {
                 <button onClick={() => handleDeleteProduct(selectedProduct.id)} className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 font-medium shadow-sm">삭제</button>
               </>
             )}
+            {inModal && (
+              <button type="button" onClick={closeProductDetailModal} className="px-4 py-2 bg-gray-100 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-200 font-medium shadow-sm">
+                닫기
+              </button>
+            )}
           </div>
         </div>
 
-        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-8 pb-16 max-w-4xl flex flex-1 min-h-0 flex-col md:flex-row gap-8 ${inModal ? '' : 'overflow-y-auto overscroll-contain'}`} onScroll={inModal ? undefined : handleContainerScroll} ref={inModal ? undefined : mainScrollRef}>
+        <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-8 pb-16 w-full flex flex-1 min-h-0 flex-col md:flex-row gap-8 ${inModal ? '' : 'max-w-4xl overflow-y-auto overscroll-contain'}`} onScroll={inModal ? undefined : handleContainerScroll} ref={inModal ? undefined : mainScrollRef}>
           
           <div className="w-full md:w-1/3 max-w-[320px] aspect-[3/4] bg-gray-100 rounded-xl flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 overflow-hidden relative group shrink-0 self-start">
             {productDetailEditMode ? (
@@ -4608,10 +4922,15 @@ export default function WholesalePOS() {
               (() => {
                 const barCount = salesStatsRows.length;
                 const isDailyChart = salesStatsTab === 'daily';
-                const useCompactAmount = !isDailyChart && barCount > 28;
+                const isMonthlyChart = salesStatsTab === 'monthly';
+                const useFluidBarGrid = isDailyChart || isMonthlyChart;
+                const useCompactAmount = !isMonthlyChart && !useFluidBarGrid && barCount > 28;
                 const barTrackMaxClass = isDailyChart
                   ? 'max-w-[3.25rem] sm:max-w-[3.5rem]'
-                  : 'max-w-[4.5rem] sm:max-w-[5rem]';
+                  : isMonthlyChart
+                    ? 'max-w-[2.75rem] sm:max-w-[3.25rem]'
+                    : 'max-w-[4.5rem] sm:max-w-[5rem]';
+                const barInnerWidthClass = isMonthlyChart ? 'w-[72%]' : 'w-[78%]';
                 const rows = salesStatsRows.map((row, idx) => {
                       const showBar = !row.isFuture && row.netSales !== 0;
                       const pct =
@@ -4635,7 +4954,7 @@ export default function WholesalePOS() {
                     <div
                       key={row.label}
                       className={`flex min-w-0 flex-col items-stretch ${
-                        isDailyChart ? 'w-full' : 'w-[7rem] shrink-0 sm:w-[7.5rem]'
+                        useFluidBarGrid ? 'w-full' : 'w-[7rem] shrink-0 sm:w-[7.5rem]'
                       }`}
                       title={
                             row.isFuture
@@ -4650,7 +4969,7 @@ export default function WholesalePOS() {
                           >
                             {showBar && (
                               <div
-                                className={`w-[78%] rounded-t transition-all duration-500 ${barColorClass}`}
+                                className={`${barInnerWidthClass} rounded-t transition-all duration-500 ${barColorClass}`}
                                 style={{ height: `${pct}%`, minHeight: 4 }}
                               />
                             )}
@@ -4658,14 +4977,22 @@ export default function WholesalePOS() {
                           <div className="mt-2 flex w-full flex-col items-center gap-0.5 px-px text-center leading-tight">
                             <div
                               className={`whitespace-nowrap font-bold text-gray-800 ${
-                                isDailyChart ? 'text-[10px] sm:text-[11px]' : 'text-[11px] sm:text-xs'
+                                isDailyChart
+                                  ? 'text-[10px] sm:text-[11px]'
+                                  : isMonthlyChart
+                                    ? 'text-[10px] sm:text-[11px]'
+                                    : 'text-[11px] sm:text-xs'
                               } ${row.isFuture ? 'text-gray-400' : ''}`}
                             >
                               {formatSalesStatsAxisLabel(row.label, salesStatsTab)}
                             </div>
                             <div
                               className={`whitespace-nowrap font-black tabular-nums ${
-                            isDailyChart ? 'text-[8px] sm:text-[9px] tracking-tight' : 'text-[10px] sm:text-[11px]'
+                                isMonthlyChart
+                                  ? 'text-[10px] sm:text-[11px] tracking-tight'
+                                  : isDailyChart
+                                    ? 'text-[8px] sm:text-[9px] tracking-tight'
+                                    : 'text-[10px] sm:text-[11px]'
                               } ${row.isFuture ? 'text-gray-300' : isNegative ? 'text-red-600' : 'text-blue-700'}`}
                             >
                           {amountLabel || (row.isFuture ? '' : '—')}
@@ -4675,10 +5002,12 @@ export default function WholesalePOS() {
                   );
                 });
                 return (
-                  <div className={`pb-4 pt-8 sm:pt-10 ${isDailyChart ? '' : 'overflow-x-auto'}`}>
-                    {isDailyChart ? (
+                  <div className={`pb-4 pt-8 sm:pt-10 ${useFluidBarGrid ? '' : 'overflow-x-auto'}`}>
+                    {useFluidBarGrid ? (
                       <div
-                        className="grid w-full gap-0.5 px-1 sm:gap-1"
+                        className={`grid w-full px-1 ${
+                          isMonthlyChart ? 'gap-0.5 sm:gap-1' : 'gap-0.5 sm:gap-1'
+                        }`}
                         style={{ gridTemplateColumns: `repeat(${barCount}, minmax(0, 1fr))` }}
                       >
                         {rows}
@@ -4766,6 +5095,17 @@ export default function WholesalePOS() {
                 </button>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCustomerMergeKeepId('');
+                setCustomerMergeRemoveId('');
+                setCustomerMergeModalOpen(true);
+              }}
+              className="bg-white text-gray-700 px-4 py-2 rounded-lg font-medium flex items-center hover:bg-gray-50 shadow-sm h-[38px] border border-gray-300"
+            >
+              <Merge size={18} className="mr-2 text-amber-600" /> 거래처 합치기
+            </button>
             <button onClick={openAddCustomerModal} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-blue-700 shadow-sm h-[38px]">
               <Plus size={18} className="mr-2"/> 신규 등록
             </button>
@@ -4890,45 +5230,7 @@ export default function WholesalePOS() {
       saveItem('customers', updated); 
       
       if (oldName !== updated.name) {
-        const updatedDailySales = dailySales.map(sale => {
-          if (sale.customerName === oldName) {
-            const newSale = { ...sale, customerName: updated.name };
-            saveItem('dailySales', newSale);
-            return newSale;
-          }
-          return sale;
-        });
-        setDailySales(updatedDailySales);
-
-        const updatedMisong = misongList.map(m => {
-          if (m.customerName === oldName) {
-            const newM = { ...m, customerName: updated.name };
-            saveItem('misong', newM);
-            return newM;
-          }
-          return m;
-        });
-        setMisongList(updatedMisong);
-
-        const updatedSample = sampleList.map(s => {
-          if (s.customerName === oldName) {
-            const newS = { ...s, customerName: updated.name };
-            saveItem('samples', newS);
-            return newS;
-          }
-          return s;
-        });
-        setSampleList(updatedSample);
-
-        const updatedRestock = restockHistory.map(r => {
-          if (r.supplier === oldName) {
-            const newR = { ...r, supplier: updated.name };
-            saveItem('restockHistory', newR);
-            return newR;
-          }
-          return r;
-        });
-        setRestockHistory(updatedRestock);
+        renameCustomerNameInAllRecords(oldName, updated.name);
       }
 
       setSelectedCustomerDetail(updated);
@@ -4941,12 +5243,12 @@ export default function WholesalePOS() {
     const totalAccumulated = customerTotalSales[selectedCustomerDetail.name] || 0;
 
     return (
-      <div className={inModal ? 'p-5 flex flex-col min-h-0' : 'px-6 pb-6 pt-2 h-full flex flex-col'}>
-        <div className="flex items-center justify-between mb-6 shrink-0">
-          <div className="flex items-center">
+      <div className={inModal ? 'p-5 flex flex-col min-h-0 w-full max-w-4xl' : 'px-6 pb-6 pt-2 h-full flex flex-col'}>
+        <div className="flex items-center justify-between mb-6 shrink-0 gap-3">
+          <div className="flex items-center min-w-0">
             <h2 className="text-2xl font-bold text-gray-800">거래처 상세 정보</h2>
           </div>
-          <div className="space-x-2">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
             {customerDetailEditMode ? (
               <>
                 <button onClick={() => setCustomerDetailEditMode(false)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium shadow-sm">취소</button>
@@ -4958,10 +5260,15 @@ export default function WholesalePOS() {
                 <button onClick={() => handleDeleteCustomer(selectedCustomerDetail.id)} className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 font-medium shadow-sm">삭제</button>
               </>
             )}
+            {inModal && (
+              <button type="button" onClick={closeCustomerDetailModal} className="px-4 py-2 bg-gray-100 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-200 font-medium shadow-sm">
+                닫기
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 max-w-4xl flex flex-col overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 w-full flex flex-col overflow-hidden">
           {customerDetailEditMode ? (
             <div className={`space-y-6 pr-2 ${inModal ? '' : 'overflow-y-auto'}`} onScroll={inModal ? undefined : handleContainerScroll} ref={inModal ? undefined : mainScrollRef}>
               <div className="flex items-center space-x-6 pb-4 border-b border-gray-100">
@@ -5098,10 +5405,10 @@ export default function WholesalePOS() {
       setAddCustomerForm({ ...addCustomerForm, [name]: value });
     };
 
-    const handleSubmit = (e) => {
-      e.preventDefault();
-      if (!addCustomerForm.name) return showAlert("거래처명(상호)을 입력해주세요.");
-      
+    const duplicateExisting = findCustomerWithExactName(customers, addCustomerForm.name);
+    const showDuplicateNameWarning = !!duplicateExisting;
+
+    const completeAddCustomerRegistration = () => {
       let maxCustIdNum = 0;
       customers.forEach(c => {
         const match = c.id.match(/^C0*(\d+)$/);
@@ -5112,16 +5419,39 @@ export default function WholesalePOS() {
       });
       const nextCustNum = maxCustIdNum > 0 ? maxCustIdNum + 1 : customers.length + 1;
       const newId = `C${String(nextCustNum).padStart(4, '0')}`;
-      
-      const newCustomer = { id: newId, type: addCustomerForm.type, name: addCustomerForm.name, phone: addCustomerForm.phone, bizNum: addCustomerForm.bizNum, balance: 0, memo: addCustomerForm.memo };
-      setCustomers([...customers, newCustomer]);
-      saveItem('customers', newCustomer); 
 
-      showAlert(`[${addCustomerForm.name}] 거래처가 성공적으로 등록되었습니다.\n(거래처코드: ${newId})`, () => {
+      const newCustomer = {
+        id: newId,
+        type: addCustomerForm.type,
+        name: addCustomerForm.name.trim(),
+        phone: addCustomerForm.phone,
+        bizNum: addCustomerForm.bizNum,
+        memo: addCustomerForm.memo,
+        balance: 0,
+      };
+      setCustomers([...customers, newCustomer]);
+      saveItem('customers', newCustomer);
+
+      showAlert(`[${newCustomer.name}] 거래처가 성공적으로 등록되었습니다.\n(거래처코드: ${newId})`, () => {
         setAddCustomerForm({ type: '판매처', name: '', phone: '', bizNum: '', memo: '' });
         if (inModal) closeAddCustomerModal();
         else goBack();
       });
+    };
+
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      if (!addCustomerForm.name.trim()) return showAlert("거래처명(상호)을 입력해주세요.");
+
+      if (duplicateExisting) {
+        showConfirm(
+          `${DUPLICATE_CUSTOMER_NAME_MSG}\n\n그래도 새로 등록하시겠습니까?`,
+          completeAddCustomerRegistration
+        );
+        return;
+      }
+
+      completeAddCustomerRegistration();
     };
 
     const handleCustomerFormKeyDown = (e) => {
@@ -5164,7 +5494,21 @@ export default function WholesalePOS() {
               </label>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div><label className="block text-sm font-medium text-gray-700 mb-2">거래처명 (상호) *</label><input type="text" name="name" lang="ko" style={{ imeMode: 'active' }} value={addCustomerForm.name} onChange={handleAddCustomerChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">거래처명 (상호) *</label>
+                <input
+                  type="text"
+                  name="name"
+                  lang="ko"
+                  style={{ imeMode: 'active' }}
+                  value={addCustomerForm.name}
+                  onChange={handleAddCustomerChange}
+                  className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${showDuplicateNameWarning ? 'border-red-400' : 'border-gray-300'}`}
+                />
+                {showDuplicateNameWarning && (
+                  <p className="mt-1.5 text-sm font-medium text-red-600">{DUPLICATE_CUSTOMER_NAME_MSG}</p>
+                )}
+              </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-2">연락처</label><input type="text" name="phone" inputMode="numeric" autoComplete="tel" placeholder="010-0000-0000" value={addCustomerForm.phone} onChange={handleAddCustomerChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" /></div>
               <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-2">사업자번호</label><input type="text" name="bizNum" value={addCustomerForm.bizNum} onChange={handleAddCustomerChange} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             </div>
@@ -5755,8 +6099,8 @@ export default function WholesalePOS() {
     if (!productDetailModalOpen || !selectedProduct) return null;
     return (
       <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4" onClick={closeProductDetailModal}>
-        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
+        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex justify-center" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
             {renderProductDetailView({ inModal: true })}
           </div>
         </div>
@@ -5768,8 +6112,8 @@ export default function WholesalePOS() {
     if (!customerDetailModalOpen || !selectedCustomerDetail) return null;
     return (
       <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4" onClick={closeCustomerDetailModal}>
-        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
+        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex justify-center" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
             {renderCustomerDetailView({ inModal: true })}
           </div>
         </div>
@@ -5788,6 +6132,125 @@ export default function WholesalePOS() {
           </div>
           <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gray-50/50" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
             {renderAddProductView({ inModal: true })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomerMergeModal = () => {
+    if (!customerMergeModalOpen) return null;
+
+    const keep = customers.find((c) => c.id === customerMergeKeepId);
+    const remove = customers.find((c) => c.id === customerMergeRemoveId);
+    const removeName = remove?.name;
+
+    const mergePreview =
+      removeName && keep
+        ? {
+            sales: dailySales.filter((s) => s.customerName === removeName).length,
+            misong: misongList.filter((m) => m.customerName === removeName).length,
+            sample: sampleList.filter((s) => s.customerName === removeName).length,
+            restock: restockHistory.filter((r) => r.supplier === removeName).length,
+          }
+        : null;
+
+    const handleMergeConfirm = () => {
+      if (!customerMergeKeepId || !customerMergeRemoveId) {
+        return showAlert('남길 거래처와 합칠(삭제할) 거래처를 모두 선택해주세요.');
+      }
+      if (customerMergeKeepId === customerMergeRemoveId) {
+        return showAlert('서로 다른 거래처 두 곳을 선택해주세요.');
+      }
+      const k = customers.find((c) => c.id === customerMergeKeepId);
+      const r = customers.find((c) => c.id === customerMergeRemoveId);
+      if (!k || !r) return showAlert('선택한 거래처를 찾을 수 없습니다.');
+
+      showConfirm(
+        `[${r.name}] (${r.id}) 의 모든 거래·미송·샘플·입고 내역을\n[${k.name}] (${k.id}) 로 합치고, 잘못 등록된 거래처는 삭제합니다.\n\n이 작업은 되돌릴 수 없습니다. 진행하시겠습니까?`,
+        () => performMergeCustomers(customerMergeKeepId, customerMergeRemoveId)
+      );
+    };
+
+    return (
+      <div
+        className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
+        onClick={() => {
+          setCustomerMergeModalOpen(false);
+          setCustomerMergeKeepId('');
+          setCustomerMergeRemoveId('');
+        }}
+      >
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-visible ring-1 ring-gray-200/80"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-6 py-4 border-b shrink-0 flex items-center justify-between bg-amber-50">
+            <h2 className="text-lg font-bold text-gray-800 flex items-center">
+              <Merge size={20} className="mr-2 text-amber-600" /> 거래처 합치기
+            </h2>
+            <button
+              type="button"
+              onClick={() => {
+                setCustomerMergeModalOpen(false);
+                setCustomerMergeKeepId('');
+                setCustomerMergeRemoveId('');
+              }}
+              className="rounded-full p-2 text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          <div className="p-6 space-y-4 overflow-visible">
+            <p className="text-sm text-gray-600 leading-relaxed">
+              띄어쓰기 등으로 잘못 나뉜 거래처를 하나로 합칩니다. 판매·반품·미송·샘플·입고·상품 차등단가가
+              남기는 업체 이름으로 통합되고, 잘못 등록된 업체는 삭제됩니다.
+            </p>
+            <CustomerMergeSearchPicker
+              label="남길 거래처 (합쳐질 쪽) *"
+              selectedId={customerMergeKeepId}
+              excludeId={customerMergeRemoveId}
+              customers={customers}
+              onSelect={setCustomerMergeKeepId}
+              focusRingClass="focus:ring-blue-500"
+            />
+            <CustomerMergeSearchPicker
+              label="합칠 거래처 (삭제·통합될 쪽) *"
+              selectedId={customerMergeRemoveId}
+              excludeId={customerMergeKeepId}
+              customers={customers}
+              onSelect={setCustomerMergeRemoveId}
+              focusRingClass="focus:ring-amber-500"
+            />
+            {mergePreview && keep && remove && (
+              <div className="rounded-lg bg-gray-50 border border-gray-100 p-3 text-sm text-gray-700 space-y-1">
+                <p className="font-bold text-gray-800">통합 예정 내역 ([{remove.name}])</p>
+                <p>판매·반품 {mergePreview.sales}건 · 미송 {mergePreview.misong}건 · 샘플 {mergePreview.sample}건 · 입고(매입처명) {mergePreview.restock}건</p>
+                {remove.balance > 0 && (
+                  <p>예치금 ₩ {Number(remove.balance).toLocaleString()} → [{keep.name}] 잔고에 합산</p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="px-6 py-4 border-t flex justify-end gap-2 bg-gray-50">
+            <button
+              type="button"
+              onClick={() => {
+                setCustomerMergeModalOpen(false);
+                setCustomerMergeKeepId('');
+                setCustomerMergeRemoveId('');
+              }}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-white font-medium"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={handleMergeConfirm}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-bold shadow-sm"
+            >
+              합치기 실행
+            </button>
           </div>
         </div>
       </div>
@@ -6173,6 +6636,7 @@ export default function WholesalePOS() {
       {/* 상세 거래 내역 모달 (전역 알림/확인보다 아래 z-index) */}
       {renderProductDetailModal()}
       {renderCustomerDetailModal()}
+      {renderCustomerMergeModal()}
       {renderAddProductModal()}
       {renderAddCustomerModal()}
       {renderRestockEditModal()}
