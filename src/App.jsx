@@ -6,7 +6,7 @@ import {
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, LineChart, Tag, Upload,
   ChevronUp, ChevronDown, Inbox, Printer, X, CalendarDays, List,
-  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge
+  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge, ClipboardList, StickyNote, Pencil
 } from 'lucide-react';
 
 const DELIVERY_FEE = 4000;
@@ -460,7 +460,10 @@ const MENU_CONFIG = {
   misong: { label: '미송 / 샘플 내역', Icon: FileText },
   cash: { label: '시재 관리', Icon: Wallet },
   notice: { label: '공지사항', Icon: Megaphone },
+  tasksMemo: { label: '할 일 / 메모', Icon: ClipboardList },
 };
+
+const STICKY_NOTE_COLORS = ['#fef9c3', '#fce7f3', '#d1fae5', '#dbeafe', '#ffedd5', '#e9d5ff'];
 
 const MENU_ORDER_STORAGE_KEY = 'mainMenuOrder';
 const MENU_ORDER_FIRESTORE_ID = 'mainMenuOrder';
@@ -677,7 +680,12 @@ export default function WholesalePOS() {
   const [monthlySales, setMonthlySales] = useState([]);
   const [restockHistory, setRestockHistory] = useState([]);
   const [cashLogs, setCashLogs] = useState([]);
-  const [notices, setNotices] = useState([]); 
+  const [notices, setNotices] = useState([]);
+  const [todoTasks, setTodoTasks] = useState([]);
+  const [stickyMemos, setStickyMemos] = useState([]);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingTaskText, setEditingTaskText] = useState('');
   
   const [selectedProduct, setSelectedProduct] = useState(null); 
   const [selectedCustomerDetail, setSelectedCustomerDetail] = useState(null); 
@@ -1416,7 +1424,12 @@ export default function WholesalePOS() {
           if (a.date !== b.date) return b.date.localeCompare(a.date);
           return b.time.localeCompare(a.time);
       }),
-      setupSubscription('notices', setNotices, (a,b) => b.id.localeCompare(a.id))
+      setupSubscription('notices', setNotices, (a,b) => b.id.localeCompare(a.id)),
+      setupSubscription('todoTasks', setTodoTasks, (a, b) => {
+        if (a.done !== b.done) return Number(a.done) - Number(b.done);
+        return b.id.localeCompare(a.id);
+      }),
+      setupSubscription('stickyMemos', setStickyMemos, (a, b) => b.id.localeCompare(a.id))
     ];
 
     return () => unsubs.forEach(u => u());
@@ -5979,6 +5992,316 @@ export default function WholesalePOS() {
     );
   };
 
+  const renderTasksMemoView = () => {
+    const handleAddTask = (e) => {
+      e?.preventDefault();
+      const text = newTaskText.trim();
+      if (!text) return;
+      const task = {
+        id: `T_${Date.now()}`,
+        text,
+        done: false,
+        createdAt: getTodayStr(),
+      };
+      setTodoTasks((prev) => [task, ...prev]);
+      saveItem('todoTasks', task);
+      setNewTaskText('');
+    };
+
+    const toggleTask = (task) => {
+      const willDone = !task.done;
+      const updated = {
+        ...task,
+        done: willDone,
+        completedAt: willDone ? getTodayStr() : null,
+      };
+      setTodoTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
+      saveItem('todoTasks', updated);
+      if (editingTaskId === task.id) {
+        setEditingTaskId(null);
+        setEditingTaskText('');
+      }
+    };
+
+    const startEditTask = (task) => {
+      setEditingTaskId(task.id);
+      setEditingTaskText(task.text);
+    };
+
+    const cancelEditTask = () => {
+      setEditingTaskId(null);
+      setEditingTaskText('');
+    };
+
+    const saveEditTask = (task) => {
+      const text = editingTaskText.trim();
+      if (!text) return showAlert('할 일 내용을 입력해주세요.');
+      const updated = { ...task, text };
+      setTodoTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
+      saveItem('todoTasks', updated);
+      setEditingTaskId(null);
+      setEditingTaskText('');
+    };
+
+    const handleDeleteTask = (id) => {
+      showConfirm('이 할 일을 삭제하시겠습니까?', () => {
+        setTodoTasks((prev) => prev.filter((t) => t.id !== id));
+        deleteItem('todoTasks', id);
+      });
+    };
+
+    const handleAddMemo = () => {
+      const memo = {
+        id: `SM_${Date.now()}`,
+        content: '',
+        color: STICKY_NOTE_COLORS[stickyMemos.length % STICKY_NOTE_COLORS.length],
+        createdAt: getTodayStr(),
+      };
+      setStickyMemos((prev) => [memo, ...prev]);
+      saveItem('stickyMemos', memo);
+    };
+
+    const handleMemoInput = (memo, content) => {
+      setStickyMemos((prev) => prev.map((m) => (m.id === memo.id ? { ...m, content } : m)));
+    };
+
+    const handleMemoBlur = (memo, content) => {
+      const updated = { ...memo, content, updatedAt: getTodayStr() };
+      setStickyMemos((prev) => prev.map((m) => (m.id === memo.id ? updated : m)));
+      saveItem('stickyMemos', updated);
+    };
+
+    const handleDeleteMemo = (id) => {
+      showConfirm('이 메모를 삭제하시겠습니까?', () => {
+        setStickyMemos((prev) => prev.filter((m) => m.id !== id));
+        deleteItem('stickyMemos', id);
+      });
+    };
+
+    const pendingCount = todoTasks.filter((t) => !t.done).length;
+    const pendingTasks = todoTasks.filter((t) => !t.done);
+    const completedTasks = todoTasks.filter((t) => t.done);
+
+    const renderTaskItem = (task, isCompletedSection) => (
+      <li
+        key={task.id}
+        className={`group flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+          isCompletedSection
+            ? 'bg-gray-50 border-gray-100'
+            : 'bg-white border-gray-100 hover:border-blue-200 hover:bg-blue-50/30'
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={!!task.done}
+          onChange={() => toggleTask(task)}
+          className="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+        />
+        {editingTaskId === task.id ? (
+          <form
+            className="flex-1 flex items-center gap-1.5 min-w-0"
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveEditTask(task);
+            }}
+          >
+            <input
+              type="text"
+              lang="ko"
+              style={{ imeMode: 'active' }}
+              value={editingTaskText}
+              onChange={(e) => setEditingTaskText(e.target.value)}
+              className="flex-1 min-w-0 p-1.5 border border-blue-300 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              autoFocus
+            />
+            <button type="submit" className="px-2 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded shrink-0">
+              저장
+            </button>
+            <button
+              type="button"
+              onClick={cancelEditTask}
+              className="px-2 py-1 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded shrink-0"
+            >
+              취소
+            </button>
+          </form>
+        ) : (
+          <>
+            <div className="flex-1 min-w-0">
+              <p
+                className={`text-sm leading-snug break-words ${
+                  task.done ? 'line-through text-gray-400' : 'text-gray-800 font-medium'
+                }`}
+              >
+                {task.text}
+              </p>
+              <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">
+                {task.createdAt || '-'}
+                {task.done && task.completedAt ? (
+                  <span className="ml-1.5 text-green-600">· 완료 {task.completedAt}</span>
+                ) : null}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+              <button
+                type="button"
+                onClick={() => startEditTask(task)}
+                className="p-1 text-gray-400 hover:text-blue-600"
+                aria-label="수정"
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteTask(task.id)}
+                className="p-1 text-gray-400 hover:text-red-500"
+                aria-label="삭제"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </>
+        )}
+      </li>
+    );
+
+    return (
+      <div className="p-6 h-full flex flex-col overflow-hidden">
+        <h2 className="text-2xl font-bold text-gray-800 mb-4 shrink-0 flex items-center">
+          <ClipboardList className="mr-2 text-blue-600" size={28} />
+          할 일 / 메모
+        </h2>
+
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4">
+          {/* 할 일 */}
+          <div className="flex flex-col min-h-0 flex-1 lg:flex-[1] bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-4 py-3 border-b bg-gray-50 shrink-0 flex items-center justify-between">
+              <h3 className="font-bold text-gray-800 flex items-center">
+                <CheckCircle className="mr-2 text-green-600" size={18} />
+                할 일
+              </h3>
+              {pendingCount > 0 && (
+                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+                  남은 {pendingCount}건
+                </span>
+              )}
+            </div>
+            <form onSubmit={handleAddTask} className="p-3 border-b shrink-0 flex gap-2">
+              <input
+                type="text"
+                lang="ko"
+                style={{ imeMode: 'active' }}
+                value={newTaskText}
+                onChange={(e) => setNewTaskText(e.target.value)}
+                placeholder="할 일 입력 후 Enter"
+                className="flex-1 p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="submit"
+                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold text-sm shrink-0 flex items-center"
+              >
+                <Plus size={16} />
+              </button>
+            </form>
+            <div className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-[2] min-h-0 flex flex-col overflow-hidden">
+                <div className="px-3 py-1.5 border-b bg-white shrink-0">
+                  <span className="text-xs font-bold text-gray-500">진행 중</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2">
+                  {pendingTasks.length === 0 ? (
+                    <p className="p-4 text-center text-gray-400 text-sm">진행 중인 할 일이 없습니다.</p>
+                  ) : (
+                    <ul className="space-y-1">{pendingTasks.map((task) => renderTaskItem(task, false))}</ul>
+                  )}
+                </div>
+              </div>
+              <div className="flex-[1] min-h-0 flex flex-col overflow-hidden border-t-2 border-gray-200 bg-gray-50/80">
+                <div className="px-3 py-1.5 border-b border-gray-200 shrink-0 flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-500">완료</span>
+                  {completedTasks.length > 0 && (
+                    <span className="text-[10px] font-bold text-gray-400">{completedTasks.length}건</span>
+                  )}
+                </div>
+                <div className="flex-1 overflow-y-auto p-2" onScroll={handleContainerScroll} ref={mainScrollRef}>
+                  {completedTasks.length === 0 ? (
+                    <p className="p-4 text-center text-gray-400 text-sm">완료한 할 일이 없습니다.</p>
+                  ) : (
+                    <ul className="space-y-1">{completedTasks.map((task) => renderTaskItem(task, true))}</ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 메모 */}
+          <div className="flex flex-col min-h-0 flex-1 lg:flex-[1] rounded-xl shadow-sm border border-gray-100 overflow-hidden bg-[#f5f0e6]">
+            <div className="px-4 py-3 border-b border-amber-100/80 bg-amber-50/80 shrink-0 flex items-center justify-between">
+              <h3 className="font-bold text-gray-800 flex items-center">
+                <StickyNote className="mr-2 text-amber-600" size={18} />
+                메모
+              </h3>
+              <button
+                type="button"
+                onClick={handleAddMemo}
+                className="px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-bold text-xs flex items-center shadow-sm"
+              >
+                <Plus size={14} className="mr-1" /> 포스트잇 추가
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {stickyMemos.length === 0 ? (
+                <div className="h-full min-h-[12rem] flex flex-col items-center justify-center text-gray-500">
+                  <StickyNote size={40} className="mb-3 text-amber-300" />
+                  <p className="text-sm mb-3">포스트잇 메모가 없습니다.</p>
+                  <button
+                    type="button"
+                    onClick={handleAddMemo}
+                    className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-bold text-sm shadow-sm"
+                  >
+                    첫 메모 추가
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {stickyMemos.map((memo, idx) => (
+                    <div
+                      key={memo.id}
+                      className="relative group shadow-md hover:shadow-lg transition-shadow"
+                      style={{
+                        backgroundColor: memo.color || STICKY_NOTE_COLORS[idx % STICKY_NOTE_COLORS.length],
+                        transform: `rotate(${idx % 2 === 0 ? -1 : 1}deg)`,
+                      }}
+                    >
+                      <textarea
+                        lang="ko"
+                        style={{ imeMode: 'active' }}
+                        value={memo.content || ''}
+                        onChange={(e) => handleMemoInput(memo, e.target.value)}
+                        onBlur={(e) => handleMemoBlur(memo, e.target.value)}
+                        placeholder="메모를 입력하세요..."
+                        rows={5}
+                        className="sticky-note-scroll w-full min-h-[7.5rem] max-h-40 overflow-y-auto px-4 pt-4 pb-10 bg-transparent border-0 outline-none resize-none text-sm text-gray-800 placeholder:text-gray-500/70 leading-relaxed"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteMemo(memo.id)}
+                        className="absolute bottom-2 right-4 p-1.5 rounded-full bg-black/5 text-gray-500 hover:bg-red-100 hover:text-red-600 opacity-0 group-hover:opacity-100 transition"
+                        aria-label="메모 삭제"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderNoticeView = () => {
     const handleNoticeSubmit = (e) => {
       e.preventDefault();
@@ -6088,7 +6411,8 @@ export default function WholesalePOS() {
       case 'customers': return renderCustomerView();
       case 'misong': return renderMisongView();
       case 'cash': return renderCashView(); 
-      case 'notice': return renderNoticeView(); 
+      case 'notice': return renderNoticeView();
+      case 'tasksMemo': return renderTasksMemoView();
       case 'settings': return renderSettingsView();
       default: return renderDashboardView();
     }
@@ -6612,7 +6936,7 @@ export default function WholesalePOS() {
 
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <main key={activeMenu} className="flex-1 min-h-0 overflow-hidden bg-gray-50 flex flex-col relative z-0">
-            {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'productStats', 'salesStats', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice'].includes(activeMenu) && (
+            {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'productStats', 'salesStats', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice', 'tasksMemo'].includes(activeMenu) && (
               <div className="px-6 pt-6 pb-2 shrink-0">
                 <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
                   <ArrowLeft size={16} className="mr-1"/> 뒤로가기
