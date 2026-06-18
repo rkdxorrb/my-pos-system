@@ -6,7 +6,7 @@ import {
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, LineChart, Tag, Upload,
   ChevronUp, ChevronDown, Inbox, Printer, X, CalendarDays, List,
-  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge, ClipboardList, StickyNote, Pencil
+  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge, ClipboardList, StickyNote, Pencil, Camera
 } from 'lucide-react';
 
 const DELIVERY_FEE = 4000;
@@ -135,6 +135,101 @@ const formatCompactWon = (amount) => {
   if (abs >= 10000) return `${sign}${Math.round(abs / 10000)}만`;
   if (abs >= 1000) return `${sign}${Math.round(abs / 1000)}천`;
   return `${sign}${abs.toLocaleString()}`;
+};
+
+const getProductIdNum = (id) => {
+  const n = Number(id);
+  return Number.isNaN(n) ? null : n;
+};
+
+const buildGroupMinIdMap = (productList) => {
+  const map = {};
+  productList.forEach((p) => {
+    if (!p.groupId) return;
+    const n = getProductIdNum(p.id);
+    if (n === null) return;
+    if (map[p.groupId] === undefined || n < map[p.groupId]) map[p.groupId] = n;
+  });
+  return map;
+};
+
+const sortProductsWithGroups = (list, groupMinIdByGroupId) =>
+  [...list].sort((a, b) => {
+    const aIdNum = getProductIdNum(a.id);
+    const bIdNum = getProductIdNum(b.id);
+    const aKey =
+      a.groupId && groupMinIdByGroupId[a.groupId] !== undefined
+        ? groupMinIdByGroupId[a.groupId]
+        : aIdNum ?? Number.MAX_SAFE_INTEGER;
+    const bKey =
+      b.groupId && groupMinIdByGroupId[b.groupId] !== undefined
+        ? groupMinIdByGroupId[b.groupId]
+        : bIdNum ?? Number.MAX_SAFE_INTEGER;
+
+    if (aKey !== bKey) return aKey - bKey;
+
+    if (a.groupId && b.groupId && a.groupId === b.groupId) {
+      if (aIdNum !== null && bIdNum !== null && aIdNum !== bIdNum) return aIdNum - bIdNum;
+    }
+
+    if (aIdNum !== null && bIdNum !== null && aIdNum !== bIdNum) return aIdNum - bIdNum;
+    return String(a.id).localeCompare(String(b.id), undefined, { numeric: true, sensitivity: 'base' });
+  });
+
+const productMatchesSalesSearch = (p, regex, queryLower) =>
+  regex.test(p.name) ||
+  (p.adminName && regex.test(p.adminName)) ||
+  (p.color && regex.test(p.color)) ||
+  (p.size && regex.test(String(p.size))) ||
+  String(p.id).toLowerCase().includes(queryLower);
+
+const filterProductsForSalesPage = (products, categoryTab, searchQuery) => {
+  const regex = makeChosungRegex(searchQuery);
+  const queryLower = searchQuery.trim().toLowerCase();
+  const matchesCategory = (p) =>
+    categoryTab === '전체' || p.category === categoryTab || (!p.category && categoryTab === '상의');
+
+  const categoryFiltered = products.filter((p) => !p.isEnded && matchesCategory(p));
+
+  if (!searchQuery.trim()) return categoryFiltered;
+
+  const matchingGroupIds = new Set();
+  const visibleIds = new Set();
+
+  categoryFiltered.forEach((p) => {
+    if (productMatchesSalesSearch(p, regex, queryLower)) {
+      visibleIds.add(p.id);
+      if (p.groupId) matchingGroupIds.add(p.groupId);
+    }
+  });
+
+  categoryFiltered.forEach((p) => {
+    if (p.groupId && matchingGroupIds.has(p.groupId)) visibleIds.add(p.id);
+  });
+
+  return categoryFiltered.filter((p) => visibleIds.has(p.id));
+};
+
+const buildSalesDisplayUnits = (sortedProducts) => {
+  const units = [];
+  const seenGroupIds = new Set();
+
+  sortedProducts.forEach((p) => {
+    if (p.groupId) {
+      if (seenGroupIds.has(p.groupId)) return;
+      const members = sortedProducts.filter((x) => x.groupId === p.groupId);
+      seenGroupIds.add(p.groupId);
+      if (members.length >= 2) {
+        units.push({ type: 'group', groupId: p.groupId, products: members });
+      } else {
+        units.push({ type: 'single', product: p });
+      }
+    } else {
+      units.push({ type: 'single', product: p });
+    }
+  });
+
+  return units;
 };
 
 const formatSalesStatsAxisLabel = (key, tab) => {
@@ -465,6 +560,39 @@ const MENU_CONFIG = {
 
 const STICKY_NOTE_COLORS = ['#fef9c3', '#fce7f3', '#d1fae5', '#dbeafe', '#ffedd5', '#e9d5ff'];
 
+const compressImageFile = (file, maxSize = 800, quality = 0.75) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.onloadend = (event) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('image load failed'));
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        if (width > height && width > maxSize) {
+          height *= maxSize / width;
+          width = maxSize;
+        } else if (height > maxSize) {
+          width *= maxSize / height;
+          height = maxSize;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+const getGroupModelImage = (groupProducts) => {
+  const found = groupProducts.find((p) => p.groupModelImage);
+  return found?.groupModelImage || '';
+};
+
 const MENU_ORDER_STORAGE_KEY = 'mainMenuOrder';
 const MENU_ORDER_FIRESTORE_ID = 'mainMenuOrder';
 
@@ -773,6 +901,11 @@ export default function WholesalePOS() {
   const detailModalScrollRef = useRef(null);
 
   const [cart, setCart] = useState([]);
+  const [cartDragFrom, setCartDragFrom] = useState(null);
+  const [cartInsertBeforeK, setCartInsertBeforeK] = useState(null);
+  const cartListDragRef = useRef(null);
+  const cartDragFromRef = useRef(null);
+  const cartInsertKRef = useRef(null);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
   const [includeDeliveryFee, setIncludeDeliveryFee] = useState(false);
@@ -1485,20 +1618,11 @@ export default function WholesalePOS() {
         closeAddCustomerModal();
         return;
       }
-
-      const match = e.key.match(/^F(\d+)$/);
-      if (match) {
-        const fNumber = parseInt(match[1], 10);
-        if (fNumber >= 1 && fNumber <= visibleMenuOrder.length) {
-          e.preventDefault(); 
-          navigateTo(visibleMenuOrder[fNumber - 1], true);
-        }
-      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modalConfig, visibleMenuOrder, saleDetailModal, restockEditForm, productDetailModalOpen, customerDetailModalOpen, addProductModalOpen, addCustomerModalOpen]);
+  }, [modalConfig, saleDetailModal, restockEditForm, productDetailModalOpen, customerDetailModalOpen, addProductModalOpen, addCustomerModalOpen]);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
@@ -2413,6 +2537,17 @@ export default function WholesalePOS() {
     setIncludeDeliveryFee(false);
   };
 
+  const saveGroupModelImageForGroup = (groupId, imageUrl) => {
+    setProducts((prev) =>
+      prev.map((p) => {
+        if (p.groupId !== groupId) return p;
+        const updated = { ...p, groupModelImage: imageUrl || null };
+        saveItem('products', updated);
+        return updated;
+      })
+    );
+  };
+
   const handleTransaction = (type) => {
     if (!selectedCustomer) { showAlert("거래처를 선택해주세요."); return; }
     if (cart.length === 0) { showAlert("상품을 추가해주세요."); return; }
@@ -2602,14 +2737,253 @@ export default function WholesalePOS() {
     const CATEGORIES = ['전체', '상의', '하의', '세트', '아우터', '기타'];
 
     const productSalesRegex = makeChosungRegex(salesSearchQuery);
-    const filteredProductsForSales = products.filter(p => {
-      if (p.isEnded) return false; 
-      const matchCategory = salesCategoryTab === '전체' || p.category === salesCategoryTab || (!p.category && salesCategoryTab === '상의');
-      const matchSearch = productSalesRegex.test(p.name) || 
-        (p.adminName && productSalesRegex.test(p.adminName)) ||
-        (p.color && productSalesRegex.test(p.color));
-      return matchCategory && matchSearch;
-    });
+    const filteredProductsForSales = filterProductsForSalesPage(
+      products,
+      salesCategoryTab,
+      salesSearchQuery
+    );
+    const salesGroupMinIdMap = buildGroupMinIdMap(products);
+    const sortedProductsForSales = sortProductsWithGroups(filteredProductsForSales, salesGroupMinIdMap);
+    const salesDisplayUnits = buildSalesDisplayUnits(sortedProductsForSales);
+
+    const renderGroupModelImageSlot = (groupId, groupProducts) => {
+      const modelImage = getGroupModelImage(groupProducts);
+
+      const handleFile = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        try {
+          const compressed = await compressImageFile(file, 900, 0.78);
+          saveGroupModelImageForGroup(groupId, compressed);
+        } catch {
+          showAlert('이미지 처리 중 오류가 발생했습니다.');
+        }
+      };
+
+      return (
+        <div className="group relative flex h-fit w-full flex-col overflow-hidden rounded-xl border border-violet-300/60 bg-gradient-to-br from-violet-50/95 via-white to-indigo-50/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_4px_16px_rgba(139,92,246,0.1)] ring-1 ring-violet-200/80 ring-inset">
+          {!modelImage && (
+            <span className="absolute top-0 left-0 z-10 rounded-br-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-2 py-0.5 text-[9px] font-bold text-white tracking-wide shadow-sm">
+              모델컷
+            </span>
+          )}
+          {modelImage ? (
+            <>
+              <img src={modelImage} alt="모델 착용" className="aspect-[3/4] w-full object-cover" />
+              <div className="pointer-events-none absolute bottom-0 inset-x-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/55 to-transparent p-2 pt-6 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-hover:pointer-events-auto">
+                <label className="cursor-pointer rounded bg-white/95 px-2 py-1 text-[10px] font-bold text-violet-700 shadow hover:bg-white">
+                  변경
+                  <input type="file" accept="image/*" className="hidden" onChange={handleFile} />
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    showConfirm('모델컷 대표사진을 삭제하시겠습니까?', () =>
+                      saveGroupModelImageForGroup(groupId, null)
+                    )
+                  }
+                  className="rounded bg-white/95 px-2 py-1 text-[10px] font-bold text-red-600 shadow hover:bg-white"
+                >
+                  삭제
+                </button>
+              </div>
+            </>
+          ) : (
+            <label className="flex aspect-[3/4] w-full cursor-pointer flex-col items-center justify-center gap-2 p-3 text-center">
+              <div className="rounded-full bg-violet-100/90 p-3 text-violet-600 ring-1 ring-violet-200/80">
+                <Camera size={22} />
+              </div>
+              <span className="text-[11px] font-bold leading-snug text-violet-800">모델 착용</span>
+              <span className="text-[10px] text-violet-500/90">대표사진 등록</span>
+              <input type="file" accept="image/*" className="hidden" onChange={handleFile} />
+            </label>
+          )}
+        </div>
+      );
+    };
+
+    const renderSalesProductCard = (product, { compact = false } = {}) => {
+      const displayUnit = resolveProductUnitPrice(product, selectedCustomer);
+      const tierForCustomer = productUsesCustomerPrice(product, selectedCustomer);
+      const hasSale = product.salePrice && product.salePrice < product.price;
+      const discountRate = hasSale ? Math.round((1 - product.salePrice / product.price) * 100) : 0;
+      const customerDiscountRate =
+        tierForCustomer && product.price > 0 && displayUnit < product.price
+          ? Math.round((1 - displayUnit / product.price) * 100)
+          : 0;
+      const soldOut = product.stock === 0;
+
+      if (compact) {
+        return (
+          <div
+            key={product.id}
+            onPointerDown={(e) => {
+              if (!e.isPrimary) return;
+              if (e.pointerType === 'mouse' && e.button !== 0) return;
+              e.preventDefault();
+              handleAddToCart(product);
+            }}
+            className={`relative flex flex-col rounded-lg border bg-white p-2 cursor-pointer select-none touch-manipulation transition hover:border-indigo-400 hover:shadow-md overflow-visible ${
+              soldOut ? 'opacity-55 border-gray-200 bg-gray-50' : 'border-indigo-100'
+            }`}
+          >
+            {tierForCustomer && (
+              <span className="absolute -left-1.5 -top-3.5 z-20 flex items-center gap-0.5 rounded-md border-2 border-white bg-indigo-600 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-white shadow-md">
+                <Tag size={9} strokeWidth={2.5} />
+                특가
+              </span>
+            )}
+            {!tierForCustomer && hasSale && (
+              <span className="absolute -left-1.5 -top-3.5 z-20 flex items-center gap-0.5 rounded-md border-2 border-white bg-red-600 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-white shadow-md">
+                <Tag size={9} strokeWidth={2.5} />
+                SALE
+              </span>
+            )}
+            {soldOut && (
+              <span className="absolute top-1 right-1 text-[9px] font-bold bg-gray-700 text-white px-1 py-px rounded z-10">
+                품절
+              </span>
+            )}
+            <div className="relative w-full shrink-0 overflow-hidden rounded-lg">
+              {product.image ? (
+                <img
+                  src={product.image}
+                  alt=""
+                  className={`aspect-[3/4] w-full object-cover ${soldOut ? 'grayscale' : ''}`}
+                />
+              ) : (
+                <div className="aspect-[3/4] w-full bg-gray-100 flex items-center justify-center text-gray-300">
+                  <Package size={20} />
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] font-bold text-gray-800 truncate leading-tight mt-1.5">
+              {product.color || '-'} / {product.size || '-'}
+            </p>
+            <p className="text-[10px] truncate flex items-center gap-1 min-w-0">
+              <span
+                className={`truncate ${
+                  hasSale || tierForCustomer ? 'text-gray-400 line-through' : 'text-gray-500'
+                }`}
+              >
+                ₩{product.price.toLocaleString()}
+              </span>
+              {tierForCustomer && customerDiscountRate > 0 && (
+                <span className="shrink-0 font-bold text-indigo-600">-{customerDiscountRate}%</span>
+              )}
+              {!tierForCustomer && hasSale && (
+                <span className="shrink-0 font-bold text-red-600">-{discountRate}%</span>
+              )}
+            </p>
+            <div className="mt-auto pt-1 flex justify-between items-end gap-1">
+              {tierForCustomer ? (
+                <span className="text-[11px] font-bold text-indigo-600 leading-none">
+                  ₩{displayUnit.toLocaleString()}
+                </span>
+              ) : hasSale ? (
+                <span className="text-[11px] font-bold text-red-600 leading-none">
+                  ₩{product.salePrice.toLocaleString()}
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-blue-600 leading-none">
+                  ₩{product.price.toLocaleString()}
+                </span>
+              )}
+              <span
+                className={`text-[10px] px-1 py-px rounded font-bold shrink-0 ${
+                  soldOut ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {product.stock}
+              </span>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div
+          key={product.id}
+          onPointerDown={(e) => {
+            if (!e.isPrimary) return;
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
+            handleAddToCart(product);
+          }}
+          className={`bg-white p-4 rounded-xl shadow-sm border border-gray-200 transition group relative overflow-visible cursor-pointer hover:border-blue-500 hover:shadow-md select-none touch-manipulation ${
+            soldOut ? 'opacity-60 bg-gray-50' : ''
+          }`}
+        >
+          {tierForCustomer && (
+            <div className="absolute -left-2 -top-4 z-20 flex items-center gap-1 rounded-md border-2 border-white bg-indigo-600 px-2 py-1 text-[11px] font-black tracking-wider text-white shadow-md">
+              <Tag size={12} strokeWidth={2.5} />
+              특가
+            </div>
+          )}
+          {!tierForCustomer && hasSale && (
+            <div className="absolute -left-2 -top-4 z-20 flex items-center gap-1 rounded-md border-2 border-white bg-red-600 px-2 py-1 text-[11px] font-black tracking-wider text-white shadow-md">
+              <Tag size={12} strokeWidth={2.5} />
+              SALE
+            </div>
+          )}
+          {soldOut && (
+            <div className="absolute top-0 right-0 bg-gray-800 text-white text-xs font-bold px-2 py-1 rounded-bl-lg z-10">
+              품절
+            </div>
+          )}
+
+          <div className="relative">
+            {product.image ? (
+              <img
+                src={product.image}
+                alt={product.name}
+                className={`aspect-[3/4] w-full object-cover rounded-lg mb-3 ${soldOut ? 'grayscale' : ''}`}
+              />
+            ) : (
+              <div className="aspect-[3/4] w-full bg-gray-100 rounded-lg mb-3 flex items-center justify-center text-gray-400 transition">
+                <Package size={32} />
+              </div>
+            )}
+          </div>
+
+          <h3 className="font-bold text-gray-800 text-sm truncate mt-2">{product.name}</h3>
+          <p className="text-xs text-gray-500 mb-2">
+            {product.color} / {product.size}
+          </p>
+          <div className="flex justify-between items-end">
+            {tierForCustomer ? (
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5 text-[11px] leading-none mb-0.5">
+                  <span className="text-gray-400 line-through">₩ {product.price.toLocaleString()}</span>
+                  {customerDiscountRate > 0 && (
+                    <span className="font-bold text-indigo-600">-{customerDiscountRate}%</span>
+                  )}
+                </div>
+                <span className="font-bold text-indigo-600 leading-none">₩ {displayUnit.toLocaleString()}</span>
+              </div>
+            ) : hasSale ? (
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5 text-[11px] leading-none mb-0.5">
+                  <span className="text-gray-400 line-through">₩ {product.price.toLocaleString()}</span>
+                  <span className="font-bold text-red-600">-{discountRate}%</span>
+                </div>
+                <span className="font-bold text-red-600 leading-none">₩ {product.salePrice.toLocaleString()}</span>
+              </div>
+            ) : (
+              <span className="font-bold text-blue-600">₩ {product.price.toLocaleString()}</span>
+            )}
+            <span
+              className={`text-xs px-2 py-1 rounded font-medium ${
+                soldOut ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
+              }`}
+            >
+              재고: {product.stock}
+            </span>
+          </div>
+        </div>
+      );
+    };
 
     const deliveryFeePreview = includeDeliveryFee ? DELIVERY_FEE : 0;
     const amountAfterDiscountPreview = cartTotal - discountAmount + deliveryFeePreview;
@@ -2652,9 +3026,65 @@ export default function WholesalePOS() {
       }
     };
 
+    const resetCartDrag = () => {
+      cartDragFromRef.current = null;
+      cartInsertKRef.current = null;
+      setCartDragFrom(null);
+      setCartInsertBeforeK(null);
+    };
+
+    const handleCartDragStart = (e, index) => {
+      cartDragFromRef.current = index;
+      cartInsertKRef.current = index;
+      setCartDragFrom(index);
+      setCartInsertBeforeK(index);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(index));
+    };
+
+    const handleCartListDragOverCapture = (e) => {
+      if (cartDragFromRef.current === null || !cartListDragRef.current) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rows = cartListDragRef.current.querySelectorAll('[data-cart-order-row]');
+      const y = e.clientY;
+      let k = cart.length;
+      for (let i = 0; i < rows.length; i++) {
+        const rect = rows[i].getBoundingClientRect();
+        if (y < rect.top + rect.height / 2) {
+          k = i;
+          break;
+        }
+      }
+      if (rows.length) {
+        const lastRect = rows[rows.length - 1].getBoundingClientRect();
+        if (y >= lastRect.top + lastRect.height / 2) k = cart.length;
+      }
+      cartInsertKRef.current = k;
+      setCartInsertBeforeK(k);
+    };
+
+    const handleCartDrop = (e) => {
+      e.preventDefault();
+      const from = cartDragFromRef.current;
+      const k = cartInsertKRef.current;
+      if (from === null) {
+        resetCartDrag();
+        return;
+      }
+      setCart((prev) => {
+        const next = [...prev];
+        const [it] = next.splice(from, 1);
+        const f = from < k ? k - 1 : k;
+        next.splice(f, 0, it);
+        return next;
+      });
+      resetCartDrag();
+    };
+
     return (
       <div className="flex h-full min-h-0 flex-col bg-gray-100 md:flex-row">
-        <div className="flex min-h-0 w-full shrink-0 flex-col border-r border-gray-200 bg-white shadow-lg md:w-1/3 z-20">
+        <div className="flex min-h-0 w-full shrink-0 flex-col border-r border-gray-200 bg-white shadow-lg md:w-[30%] md:min-w-[22rem] md:max-w-[26rem] z-20">
           <div className="p-3 bg-gray-50 border-b space-y-3 shrink-0">
             <div className="flex justify-between items-center">
               <h2 className="text-sm font-bold text-gray-800">판매 일자</h2>
@@ -2738,19 +3168,47 @@ export default function WholesalePOS() {
             </div>
           </div>
           
-          <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5">
+          <div
+            ref={cartListDragRef}
+            className="cart-list-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1.5"
+            onDragOverCapture={handleCartListDragOverCapture}
+            onDrop={handleCartDrop}
+          >
             {cart.length === 0 ? (
               <div className="flex min-h-[6rem] items-center justify-center text-gray-400 text-xs">우측에서 상품을 선택하세요.</div>
             ) : (
-              cart.map(item => {
+              cart.map((item, index) => {
                 const pInfo = products.find(p => p.id === item.id);
                 const currentStock = pInfo ? pInfo.stock : 0;
                 const misongQty = Math.max(0, item.qty - currentStock);
                 const remainingStock = Math.max(0, currentStock - item.qty);
+                const isDragging = cartDragFrom === index;
                 
                 return (
-                  <div key={item.id} className="relative rounded-md border border-gray-200 bg-white p-2 pr-7">
-                    <button type="button" onClick={() => removeCartItem(item.id)} className="absolute top-1 right-1 text-gray-400 hover:text-red-500"><Trash2 size={13} /></button>
+                  <Fragment key={item.id}>
+                    {cartDragFrom !== null && cartInsertBeforeK === index ? <DropIndicatorLine /> : null}
+                    <div
+                      data-cart-order-row
+                      className={`relative flex gap-1.5 rounded-md border border-gray-200 bg-white p-2 pr-7 transition-[opacity,box-shadow] ${
+                        isDragging ? 'opacity-45 shadow-inner ring-1 ring-inset ring-blue-200/80' : ''
+                      }`}
+                    >
+                      <div
+                        draggable
+                        onDragStart={(e) => {
+                          const row = e.currentTarget.closest('[data-cart-order-row]');
+                          if (row) e.dataTransfer.setDragImage(row, 24, 20);
+                          handleCartDragStart(e, index);
+                        }}
+                        onDragEnd={resetCartDrag}
+                        className="flex shrink-0 items-start pt-0.5 text-gray-300 cursor-grab active:cursor-grabbing hover:text-gray-500"
+                        title="드래그하여 순서 변경"
+                        aria-label="순서 변경"
+                      >
+                        <GripVertical size={14} />
+                      </div>
+                    <button type="button" onClick={() => removeCartItem(item.id)} className="absolute top-1 right-1 text-gray-400 hover:text-red-500 z-10"><Trash2 size={13} /></button>
+                    <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-0.5 leading-tight mb-0.5">
                       <p className="text-xs font-bold text-gray-800 mr-1">{item.name}</p>
                       {item.usedCustomerPrice && <span className="bg-indigo-100 text-indigo-700 text-[9px] px-1 py-px rounded font-bold">거래처단가</span>}
@@ -2769,10 +3227,13 @@ export default function WholesalePOS() {
                       </div>
                       <span className="text-xs font-bold text-gray-800 tabular-nums">₩{(item.price * item.qty).toLocaleString()}</span>
                     </div>
+                    </div>
                   </div>
+                  </Fragment>
                 );
               })
             )}
+            {cartDragFrom !== null && cartInsertBeforeK === cart.length ? <DropIndicatorLine /> : null}
           </div>
 
           <div className="shrink-0 p-3 bg-gray-800 text-white rounded-t-lg">
@@ -2822,7 +3283,7 @@ export default function WholesalePOS() {
           </div>
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-gray-100 md:w-2/3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-gray-100">
           <div className="shrink-0 bg-gray-100 px-6 pb-4 pt-6">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-2xl font-bold text-gray-800">상품 목록</h2>
@@ -2864,59 +3325,38 @@ export default function WholesalePOS() {
             ref={mainScrollRef}
           >
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {filteredProductsForSales.map(product => {
-              const displayUnit = resolveProductUnitPrice(product, selectedCustomer);
-              const tierForCustomer = productUsesCustomerPrice(product, selectedCustomer);
-              const hasSale = product.salePrice && product.salePrice < product.price;
-              const discountRate = hasSale ? Math.round((1 - product.salePrice / product.price) * 100) : 0;
-              
-              return (
-                <div 
-                  key={product.id} 
-                  onPointerDown={(e) => {
-                    if (!e.isPrimary) return;
-                    if (e.pointerType === 'mouse' && e.button !== 0) return;
-                    e.preventDefault();
-                    handleAddToCart(product);
-                  }}
-                  className={`bg-white p-4 rounded-xl shadow-sm border border-gray-200 transition group relative overflow-hidden cursor-pointer hover:border-blue-500 hover:shadow-md select-none touch-manipulation ${
-                    product.stock === 0 ? 'opacity-60 bg-gray-50' : ''
-                  }`}
-                >
-                  {tierForCustomer && (
-                    <div className="absolute top-0 left-0 bg-indigo-600 text-white text-[11px] font-bold px-2 py-1 rounded-br-lg z-10">거래처 단가</div>
-                  )}
-                  {!tierForCustomer && hasSale && <div className="absolute top-0 left-0 bg-red-600 text-white text-[11px] font-bold px-2 py-1 rounded-br-lg z-10 flex items-center"><Tag size={12} className="mr-1"/> -{discountRate}%</div>}
-                  {product.stock === 0 && <div className="absolute top-0 right-0 bg-gray-800 text-white text-xs font-bold px-2 py-1 rounded-bl-lg z-10">품절</div>}
-                  
-                  {product.image ? (
-                    <img src={product.image} alt={product.name} className={`aspect-[3/4] w-full object-cover rounded-lg mb-3 ${product.stock === 0 ? 'grayscale' : ''}`} />
-                  ) : (
-                    <div className="aspect-[3/4] w-full bg-gray-100 rounded-lg mb-3 flex items-center justify-center text-gray-400 transition"><Package size={32} /></div>
-                  )}
-                  
-                  <h3 className="font-bold text-gray-800 text-sm truncate mt-2">{product.name}</h3>
-                  <p className="text-xs text-gray-500 mb-2">{product.color} / {product.size}</p>
-                  <div className="flex justify-between items-end">
-                    {tierForCustomer ? (
-                      <div className="flex flex-col">
-                        <span className="text-[11px] text-gray-400 line-through leading-none mb-0.5">₩ {product.price.toLocaleString()}</span>
-                        <span className="font-bold text-indigo-600 leading-none">₩ {displayUnit.toLocaleString()}</span>
+            {salesDisplayUnits.map((unit) => {
+              if (unit.type === 'group') {
+                const lead = unit.products[0];
+                return (
+                  <div
+                    key={unit.groupId}
+                    className="col-span-full rounded-xl border-2 border-indigo-200 bg-indigo-50/30 p-3 shadow-sm"
+                  >
+                    <div className="mb-3 flex min-w-0 items-center gap-2 px-0.5">
+                      <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+                        그룹
+                      </span>
+                      <h3 className="truncate text-sm font-bold text-gray-900">{lead.name}</h3>
+                      {lead.adminName ? (
+                        <span className="hidden truncate text-xs text-gray-500 sm:inline">({lead.adminName})</span>
+                      ) : null}
+                      <span className="ml-auto shrink-0 text-[10px] font-bold text-indigo-500">
+                        {unit.products.length}종
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 items-start overflow-visible">
+                      <div className="[grid-row:1/-1] self-center h-fit">
+                        {renderGroupModelImageSlot(unit.groupId, unit.products)}
                       </div>
-                    ) : hasSale ? (
-                      <div className="flex flex-col">
-                        <span className="text-[11px] text-gray-400 line-through leading-none mb-0.5">₩ {product.price.toLocaleString()}</span>
-                        <span className="font-bold text-red-600 leading-none">₩ {product.salePrice.toLocaleString()}</span>
-                      </div>
-                    ) : (
-                      <span className="font-bold text-blue-600">₩ {product.price.toLocaleString()}</span>
-                    )}
-                    <span className={`text-xs px-2 py-1 rounded font-medium ${product.stock === 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>재고: {product.stock}</span>
+                      {unit.products.map((product) => renderSalesProductCard(product, { compact: true }))}
+                    </div>
                   </div>
-                </div>
-              );
+                );
+              }
+              return renderSalesProductCard(unit.product);
             })}
-            {filteredProductsForSales.length === 0 && (
+            {salesDisplayUnits.length === 0 && (
               <div className="col-span-full py-12 text-center text-gray-500">
                 <Search size={48} className="mx-auto text-gray-300 mb-4" />
                 <p>검색 결과가 없습니다.</p>
@@ -6892,43 +7332,41 @@ export default function WholesalePOS() {
   return (
     <>
       <div className="flex h-screen bg-gray-100 font-sans">
-        <div className="w-64 bg-gray-900 text-white flex flex-col shrink-0">
+        <div className="w-44 bg-gray-900 text-white flex flex-col shrink-0">
           <div className="border-b border-gray-800">
-            <div className="flex items-start p-5 pb-3">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl mr-3 shadow-sm shrink-0">P</div>
+            <div className="flex items-start p-2.5 pb-2">
+              <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg mr-2 shadow-sm shrink-0">P</div>
               <div className="min-w-0">
-                <h1 className="font-bold text-lg tracking-wide">POS SYSTEM</h1>
-                <p className="text-xs text-gray-400">의류 도매 매장관리</p>
+                <h1 className="font-bold text-sm tracking-wide leading-tight">POS SYSTEM</h1>
+                <p className="text-[10px] text-gray-400">의류 도매 매장관리</p>
               </div>
             </div>
-            <p className="px-3 pb-4 text-center text-sm font-extrabold leading-snug text-gray-100 tracking-tight">
-              동대문 청평화 2층 가 12호
+            <p className="px-2 pb-2.5 text-center text-xs font-extrabold leading-snug text-gray-100 tracking-tight">
+              청평화 2층 가 12호
             </p>
           </div>
           
-          <nav className="flex-1 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-            {visibleMenuOrder.map((menuId, index) => {
+          <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto custom-scrollbar">
+            {visibleMenuOrder.map((menuId) => {
               const { label, Icon } = MENU_CONFIG[menuId];
               return (
                 <button 
                   key={menuId} 
                   onClick={() => navigateTo(menuId, true)} 
-                  className={`w-full flex justify-between items-center px-6 py-3 text-sm font-medium transition ${activeMenu === menuId ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}
+                  className={`w-full flex items-center px-2.5 py-2.5 text-sm font-medium transition ${activeMenu === menuId ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}
                 >
-                  <div className="flex items-center">
-                    <Icon className="mr-3" size={20} /> {label}
-                  </div>
-                  <span className="text-[10px] text-gray-500 font-bold bg-gray-800 px-1.5 py-0.5 rounded">F{index + 1}</span>
+                  <Icon className="mr-1.5 shrink-0" size={17} />
+                  <span className="truncate text-left leading-snug">{label}</span>
                 </button>
               );
             })}
           </nav>
 
-          <div className="p-4 border-t border-gray-800">
+          <div className="p-2.5 border-t border-gray-800">
             <button onClick={() => navigateTo('settings', true)} className="flex items-center text-gray-400 hover:text-white text-sm">
               <Settings className="mr-2" size={16} /> 설정
             </button>
-            <button onClick={handleLogout} className="flex items-center text-red-400 hover:text-red-300 text-sm mt-3 w-full text-left">
+            <button onClick={handleLogout} className="flex items-center text-red-400 hover:text-red-300 text-sm mt-2.5 w-full text-left">
               <LogOut className="mr-2" size={16} /> 로그아웃
             </button>
           </div>
