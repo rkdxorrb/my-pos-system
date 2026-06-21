@@ -6,10 +6,122 @@ import {
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, LineChart, Tag, Upload,
   ChevronUp, ChevronDown, Inbox, Printer, X, CalendarDays, List,
-  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge, ClipboardList, StickyNote, Pencil, Camera
+  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge, ClipboardList, StickyNote, Pencil, Camera, Pin
 } from 'lucide-react';
 
 const DELIVERY_FEE = 4000;
+const getRestockSuppliers = (customers) => customers.filter((c) => c.type === '매입처');
+
+const resolveDefaultRestockSupplierId = (suppliers) => {
+  if (suppliers.length === 1) return suppliers[0].id;
+  return '';
+};
+
+const getProductInitialStock = (product) =>
+  Math.max(0, Number(product.initialStock ?? product.stock) || 0);
+
+/** 매입처 반품: 재입고 수량이 있으면 재입고에서, 없으면 초기입고에서 차감 */
+const applySupplierReturnDeduction = (product, returnQty) => {
+  const qty = Math.max(0, Number(returnQty) || 0);
+  const restocked = Math.max(0, Number(product.restockedQty) || 0);
+  const initial = getProductInitialStock(product);
+  let fromRestock = 0;
+  let fromInitial = 0;
+
+  if (restocked > 0) {
+    fromRestock = Math.min(qty, restocked);
+    fromInitial = qty - fromRestock;
+  } else {
+    fromInitial = qty;
+  }
+
+  return {
+    fromRestock,
+    fromInitial,
+    product: {
+      ...product,
+      stock: Math.max(0, product.stock - qty),
+      restockedQty: restocked - fromRestock,
+      initialStock: Math.max(0, initial - fromInitial),
+    },
+  };
+};
+
+const reverseSupplierReturnDeduction = (product, fromRestock, fromInitial) => ({
+  ...product,
+  stock: product.stock + fromRestock + fromInitial,
+  restockedQty: (product.restockedQty || 0) + fromRestock,
+  initialStock: getProductInitialStock(product) + fromInitial,
+});
+
+const legacyReverseSupplierReturn = (product, returnQty) => {
+  const qty = Math.abs(returnQty);
+  const restocked = product.restockedQty || 0;
+  if (restocked > 0) {
+    return { ...product, stock: product.stock + qty, restockedQty: restocked + qty };
+  }
+  return {
+    ...product,
+    stock: product.stock + qty,
+    initialStock: getProductInitialStock(product) + qty,
+  };
+};
+
+const revertRestockLogOnProduct = (product, log) => {
+  const q = log.qty;
+  if (log.type === '초기입고') {
+    return {
+      ...product,
+      stock: product.stock - q,
+      initialStock: Math.max(0, getProductInitialStock(product) - q),
+    };
+  }
+  if (log.type === '재입고') {
+    return {
+      ...product,
+      stock: product.stock - q,
+      restockedQty: Math.max(0, (product.restockedQty || 0) - q),
+    };
+  }
+  if (log.type === '매입처반품') {
+    if (log.returnFromRestock != null) {
+      return reverseSupplierReturnDeduction(product, log.returnFromRestock, log.returnFromInitial || 0);
+    }
+    return legacyReverseSupplierReturn(product, q);
+  }
+  return { ...product, stock: product.stock - q };
+};
+
+const applyRestockLogOnProduct = (product, log) => {
+  if (log.type === '초기입고') {
+    return {
+      product: {
+        ...product,
+        stock: product.stock + log.qty,
+        initialStock: getProductInitialStock(product) + log.qty,
+      },
+      logPatch: {},
+    };
+  }
+  if (log.type === '재입고') {
+    return {
+      product: {
+        ...product,
+        stock: product.stock + log.qty,
+        restockedQty: (product.restockedQty || 0) + log.qty,
+      },
+      logPatch: {},
+    };
+  }
+  if (log.type === '매입처반품') {
+    const { product: next, fromRestock, fromInitial } = applySupplierReturnDeduction(product, Math.abs(log.qty));
+    return {
+      product: next,
+      logPatch: { returnFromRestock: fromRestock, returnFromInitial: fromInitial },
+    };
+  }
+  return { product: { ...product, stock: product.stock + log.qty }, logPatch: {} };
+};
 
 // Firebase 연동 모듈
 import { initializeApp } from 'firebase/app';
@@ -560,6 +672,26 @@ const MENU_CONFIG = {
 
 const STICKY_NOTE_COLORS = ['#fef9c3', '#fce7f3', '#d1fae5', '#dbeafe', '#ffedd5', '#e9d5ff'];
 
+const TASK_NEW_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const isTaskWithinNewWindow = (task) => {
+  if (!task) return false;
+  if (task.createdAtMs) return Date.now() - task.createdAtMs < TASK_NEW_WINDOW_MS;
+  if (task.createdAt) {
+    const createdStart = new Date(`${task.createdAt}T00:00:00`).getTime();
+    return Date.now() - createdStart < TASK_NEW_WINDOW_MS;
+  }
+  return false;
+};
+
+const sortStickyMemos = (memos) =>
+  [...memos].sort((a, b) => {
+    const aPinned = !!a.pinned;
+    const bPinned = !!b.pinned;
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    return (b.sortOrder ?? 0) - (a.sortOrder ?? 0);
+  });
+
 const compressImageFile = (file, maxSize = 800, quality = 0.75) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -714,7 +846,6 @@ const MenuOrderDragList = ({ menuOrder, setMenuOrder }) => {
             >
               <div className="flex min-w-0 flex-1 items-center">
                 <GripVertical className="mr-2 shrink-0 text-gray-400" size={18} aria-hidden />
-                <span className="w-10 shrink-0 text-lg font-black text-blue-600">F{index + 1}</span>
                 <Icon className="mr-3 shrink-0 text-gray-600" size={20} />
                 <span className="truncate font-bold text-gray-800">{label}</span>
               </div>
@@ -783,14 +914,57 @@ const LoginView = ({ onLogin, showAlert }) => {
   );
 };
 
+const loadReceiptPrintCountSetting = (storageKey, defaultValue) => {
+  const saved = localStorage.getItem(storageKey);
+  if (saved !== null) {
+    const n = parseInt(saved, 10);
+    if (n === 0 || n === 1 || n === 2) return n;
+  }
+  const legacy = localStorage.getItem('receiptPrintCount');
+  if (legacy !== null) {
+    const n = parseInt(legacy, 10);
+    if (n === 0 || n === 1 || n === 2) return n;
+  }
+  return defaultValue;
+};
+
+const RECEIPT_COUNT_OPTIONS = [
+  { value: 0, label: '출력 안 함' },
+  { value: 1, label: '1장 (고객용만)' },
+  { value: 2, label: '2장 (고객용 + 보관용)' },
+];
+
+const ReceiptCountRadioGroup = ({ name, value, onChange, label }) => (
+  <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 sm:flex-row sm:items-center sm:gap-6">
+    <span className="shrink-0 text-sm font-bold text-gray-700 sm:w-36">{label}</span>
+    <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+      {RECEIPT_COUNT_OPTIONS.map(({ value: count, label: countLabel }) => (
+        <label key={count} className="flex cursor-pointer items-center space-x-2">
+          <input
+            type="radio"
+            name={name}
+            value={count}
+            checked={value === count}
+            onChange={() => onChange(count)}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+          />
+          <span className="text-sm font-medium text-gray-800">{countLabel}</span>
+        </label>
+      ))}
+    </div>
+  </div>
+);
+
 export default function WholesalePOS() {
   const [menuHistory, setMenuHistory] = useState(['dashboard']);
   const activeMenu = menuHistory[menuHistory.length - 1] || 'dashboard';
 
-  const [receiptPrintCount, setReceiptPrintCount] = useState(() => {
-    const savedCount = localStorage.getItem('receiptPrintCount');
-    return savedCount !== null ? parseInt(savedCount, 10) : 2;
-  });
+  const [saleReceiptPrintCount, setSaleReceiptPrintCount] = useState(() =>
+    loadReceiptPrintCountSetting('saleReceiptPrintCount', 2)
+  );
+  const [reprintReceiptPrintCount, setReprintReceiptPrintCount] = useState(() =>
+    loadReceiptPrintCountSetting('reprintReceiptPrintCount', 1)
+  );
 
   const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('pos_logged_in') === 'true'); 
   const [menuOrder, setMenuOrder] = useState(loadMenuOrderFromLocal);
@@ -839,7 +1013,7 @@ export default function WholesalePOS() {
   const [restockSearchDate, setRestockSearchDate] = useState(getTodayStr());
   const [restockSearchMonth, setRestockSearchMonth] = useState(getTodayStr().substring(0, 7));
   const [restockSearchQuery, setRestockSearchQuery] = useState('');
-  const [restockViewType, setRestockViewType] = useState('daily');
+  const [restockViewType, setRestockViewType] = useState('calendar');
   const [restockEditForm, setRestockEditForm] = useState(null); 
 
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -999,13 +1173,18 @@ export default function WholesalePOS() {
       return;
     }
     const newSignedQty = form.type === '매입처반품' ? -qtyNum : qtyNum;
-    const qtyDiff = newSignedQty - oldLog.qty;
     const supplierName = form.supplierId
       ? customers.find((c) => c.id === form.supplierId)?.name
       : '자체제작/기타';
 
+    let workingProduct = revertRestockLogOnProduct({ ...product }, oldLog);
+    const { product: appliedProduct, logPatch } = applyRestockLogOnProduct(workingProduct, {
+      qty: newSignedQty,
+      type: form.type,
+    });
+
     const updatedProduct = {
-      ...product,
+      ...appliedProduct,
       name: form.name,
       adminName: form.adminName,
       category: form.category,
@@ -1015,14 +1194,7 @@ export default function WholesalePOS() {
       material: form.material,
       origin: form.origin,
       supplierId: form.supplierId || '',
-      stock: Math.max(0, product.stock + qtyDiff),
     };
-
-    if (form.type === '초기입고') {
-      updatedProduct.initialStock = Math.max(0, (product.initialStock ?? product.stock) + qtyDiff);
-    } else if (form.type !== '매입처반품') {
-      updatedProduct.restockedQty = Math.max(0, (product.restockedQty || 0) + qtyDiff);
-    }
 
     const updatedLog = {
       ...oldLog,
@@ -1034,6 +1206,8 @@ export default function WholesalePOS() {
       supplier: supplierName,
       qty: newSignedQty,
       type: form.type,
+      returnFromRestock: form.type === '매입처반품' ? (logPatch.returnFromRestock ?? 0) : null,
+      returnFromInitial: form.type === '매입처반품' ? (logPatch.returnFromInitial ?? 0) : null,
     };
 
     setProducts((prev) => prev.map((p) => (p.id === product.id ? updatedProduct : p)));
@@ -1121,7 +1295,7 @@ export default function WholesalePOS() {
       setProductStatsRangeEnd(getTodayStr());
       setRestockSearchDate(getTodayStr());
       setRestockSearchMonth(getTodayStr().substring(0, 7));
-      setRestockViewType('daily');
+      setRestockViewType('calendar');
       setIsCustomerDropdownOpen(false);
       inventoryScrollRef.current = 0;
       customersScrollRef.current = 0;
@@ -1491,7 +1665,7 @@ export default function WholesalePOS() {
     setCustomerTierPriceInput('');
     setProductTierCustomerDropdownOpen(false);
     setProductRestockQty('');
-    setProductRestockSupplierId('');
+    setProductRestockSupplierId(resolveDefaultRestockSupplierId(getRestockSuppliers(customers)));
     setProductRestockDate(getTodayStr());
     setProductDetailModalOpen(true);
   };
@@ -1562,7 +1736,14 @@ export default function WholesalePOS() {
         if (a.done !== b.done) return Number(a.done) - Number(b.done);
         return b.id.localeCompare(a.id);
       }),
-      setupSubscription('stickyMemos', setStickyMemos, (a, b) => b.id.localeCompare(a.id))
+      setupSubscription('stickyMemos', setStickyMemos, (a, b) => {
+        const aPinned = !!a.pinned;
+        const bPinned = !!b.pinned;
+        if (aPinned !== bPinned) return aPinned ? -1 : 1;
+        const orderDiff = (b.sortOrder ?? 0) - (a.sortOrder ?? 0);
+        if (orderDiff !== 0) return orderDiff;
+        return b.id.localeCompare(a.id);
+      })
     ];
 
     return () => unsubs.forEach(u => u());
@@ -1626,6 +1807,11 @@ export default function WholesalePOS() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
+  const hasNewTodoTasks = useMemo(
+    () => todoTasks.some((t) => !t.done && isTaskWithinNewWindow(t)),
+    [todoTasks]
+  );
+
   const resolveProductUnitPrice = (product, customerId) => {
     if (!product) return 0;
     if (customerId && product.customerPrices && Object.prototype.hasOwnProperty.call(product.customerPrices, customerId)) {
@@ -1656,7 +1842,8 @@ export default function WholesalePOS() {
   }, [selectedCustomer, products]);
 
   const printReceipt = (receiptData) => {
-    if (receiptPrintCount === 0) return;
+    const effectivePrintCount = receiptData.isReprint ? reprintReceiptPrintCount : saleReceiptPrintCount;
+    if (effectivePrintCount === 0) return;
 
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
@@ -1665,6 +1852,7 @@ export default function WholesalePOS() {
     const now = new Date();
     const printTime = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
     const txDate = receiptData.date || now.toLocaleDateString();
+    const txTimeLabel = receiptData.time ? `${txDate} ${receiptData.time}` : txDate;
 
     const lineItemCount = receiptData.cart.length;
     const totalQty = receiptData.cart.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
@@ -1752,8 +1940,9 @@ export default function WholesalePOS() {
           <div class="receipt-title">
             영 수 증 (${receiptData.type})<br>
             <span class="receipt-type">[${receiptTypeLabel}]</span>
+            ${receiptData.isReprint ? '<div class="reprint-badge">[ 재출력 ]</div>' : ''}
           </div>
-          <div class="tx-time">거래일자 : ${txDate}</div>
+          <div class="tx-time">거래일자 : ${txTimeLabel}</div>
         </div>
         
         <div class="divider-solid"></div>
@@ -1781,12 +1970,12 @@ export default function WholesalePOS() {
     `;
 
     let printPagesHtml = `
-      <div class="${receiptPrintCount === 2 ? 'page-break' : ''}">
+      <div class="${effectivePrintCount === 2 ? 'page-break' : ''}">
         ${generateReceiptBody('고객용')}
       </div>
     `;
     
-    if (receiptPrintCount === 2) {
+    if (effectivePrintCount === 2) {
       printPagesHtml += `
         <div>
           ${generateReceiptBody('매장 보관용')}
@@ -1815,6 +2004,7 @@ export default function WholesalePOS() {
           
           .receipt-title { font-size: 18px; font-weight: 900; margin: 10px 0 5px; letter-spacing: 2px; line-height: 1.3; color: #000; }
           .receipt-type { font-size: 14px; color: #000; font-weight: 900; }
+          .reprint-badge { font-size: 15px; font-weight: 900; margin-top: 6px; letter-spacing: 1px; color: #000; border: 2px solid #000; display: inline-block; padding: 2px 10px; margin-top: 8px; }
           .tx-time { font-size: 11px; color: #000; font-weight: 500; margin-top: 5px; }
           .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
           .divider-solid { border-bottom: 1.5px solid #000; margin: 10px 0; }
@@ -1854,6 +2044,44 @@ export default function WholesalePOS() {
       window.focus();
       setTimeout(() => { document.body.removeChild(iframe); }, 1000);
     }, 500);
+  };
+
+  const handleReprintSaleReceipt = (sale) => {
+    if (!sale || sale.type !== '판매') return;
+
+    const cartTotal = Math.abs(sale.total || 0);
+    const deliveryFee = sale.deliveryFee || 0;
+    const appliedBalance = sale.appliedBalance || 0;
+    const actualPayment = sale.actualPayment ?? 0;
+    const amountAfterDiscount = actualPayment + appliedBalance;
+    const discountAmount = Math.max(0, cartTotal + deliveryFee - amountAfterDiscount);
+
+    const cart = (sale.items || []).map((item) => {
+      const display = resolveLineItemDisplay(products, item);
+      return {
+        name: display.name,
+        color: display.color,
+        size: display.size,
+        price: item.price,
+        qty: item.qty,
+        misongQty: item.misongQty || 0,
+      };
+    });
+
+    printReceipt({
+      type: '결제',
+      customerName: sale.customerName,
+      cart,
+      cartTotal,
+      discountAmount,
+      deliveryFee,
+      appliedBalance,
+      actualPayment,
+      amountAfterDiscount,
+      date: sale.date,
+      time: sale.time,
+      isReprint: true,
+    });
   };
 
   const handleToggleEndProduct = (product) => {
@@ -2311,9 +2539,14 @@ export default function WholesalePOS() {
   };
 
   const renderSettingsView = () => {
-    const handleReceiptCountChange = (count) => {
-      setReceiptPrintCount(count);
-      localStorage.setItem('receiptPrintCount', count.toString());
+    const handleSaleReceiptCountChange = (count) => {
+      setSaleReceiptPrintCount(count);
+      localStorage.setItem('saleReceiptPrintCount', count.toString());
+    };
+
+    const handleReprintReceiptCountChange = (count) => {
+      setReprintReceiptPrintCount(count);
+      localStorage.setItem('reprintReceiptPrintCount', count.toString());
     };
 
     return (
@@ -2323,42 +2556,23 @@ export default function WholesalePOS() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl mb-6">
           <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Printer className="mr-2" size={20}/> 영수증 출력 설정</h3>
           
-          <div className="flex items-center space-x-6 mb-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
-            <span className="text-sm font-bold text-gray-700 w-24">기본 출력 매수</span>
-            
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input 
-                type="radio" name="receiptCount" value={0} 
-                checked={receiptPrintCount === 0} 
-                onChange={() => handleReceiptCountChange(0)} 
-                className="text-blue-600 focus:ring-blue-500 w-4 h-4" 
-              />
-              <span className="text-sm font-medium text-gray-800">출력 안 함</span>
-            </label>
-
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input 
-                type="radio" name="receiptCount" value={1} 
-                checked={receiptPrintCount === 1} 
-                onChange={() => handleReceiptCountChange(1)} 
-                className="text-blue-600 focus:ring-blue-500 w-4 h-4" 
-              />
-              <span className="text-sm font-medium text-gray-800">1장 (고객용만)</span>
-            </label>
-            
-            <label className="flex items-center space-x-2 cursor-pointer">
-              <input 
-                type="radio" name="receiptCount" value={2} 
-                checked={receiptPrintCount === 2} 
-                onChange={() => handleReceiptCountChange(2)} 
-                className="text-blue-600 focus:ring-blue-500 w-4 h-4" 
-              />
-              <span className="text-sm font-medium text-gray-800">2장 (고객용 + 보관용)</span>
-            </label>
+          <div className="space-y-3 mb-4">
+            <ReceiptCountRadioGroup
+              name="saleReceiptCount"
+              label="판매 등록 시"
+              value={saleReceiptPrintCount}
+              onChange={handleSaleReceiptCountChange}
+            />
+            <ReceiptCountRadioGroup
+              name="reprintReceiptCount"
+              label="재출력 시"
+              value={reprintReceiptPrintCount}
+              onChange={handleReprintReceiptCountChange}
+            />
           </div>
 
           <p className="text-sm text-gray-600 leading-relaxed">
-            크롬(Chrome) 브라우저 자동 인쇄(Kiosk Printing) 사용 시, 결제 버튼을 누르면 위에서 설정하신 매수만큼 영수증이 자동으로 인쇄됩니다.<br/><br/>
+            크롬(Chrome) 브라우저 자동 인쇄(Kiosk Printing) 사용 시, <b>판매 등록</b>은 위 「판매 등록 시」 설정만큼, <b>영수증 재출력</b>은 「재출력 시」 설정만큼 인쇄됩니다.<br/><br/>
             [프린터 권장 설정]<br/>
             - 용지 크기: <b>80mm x 297mm</b> (또는 Roll Paper) 선택<br/>
             - 여백: <b>최소</b> 또는 <b>없음</b>
@@ -2367,11 +2581,8 @@ export default function WholesalePOS() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 max-w-2xl">
           <h3 className="text-lg font-bold text-gray-800 mb-4">메인 메뉴 순서 변경</h3>
-          <p className="text-sm text-gray-500 mb-1">
-            항목을 <b className="text-gray-800">드래그하여 놓으면</b> 순서가 바뀝니다. 드래그 중 <b className="text-blue-600">파란 선</b>은 놓았을 때 메뉴가 들어갈 위치를 미리 보여 줍니다.
-          </p>
           <p className="text-sm text-gray-500 mb-4">
-            순서에 따라 키보드 최상단 <b className="text-blue-600">F1 ~ F12</b> 단축키가 자동 할당됩니다. 변경 내용은 서버에 저장되어 다른 PC·브라우저에서도 동일하게 적용됩니다.
+            항목을 <b className="text-gray-800">드래그하여 놓으면</b> 순서가 바뀝니다. 드래그 중 <b className="text-blue-600">파란 선</b>은 놓았을 때 메뉴가 들어갈 위치를 미리 보여 줍니다. 변경 내용은 서버에 저장되어 다른 PC·브라우저에서도 동일하게 적용됩니다.
           </p>
           <MenuOrderDragList menuOrder={menuOrder} setMenuOrder={setMenuOrder} />
         </div>
@@ -3170,7 +3381,7 @@ export default function WholesalePOS() {
           
           <div
             ref={cartListDragRef}
-            className="cart-list-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain p-2 space-y-1.5"
+            className="cart-list-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain p-1.5 space-y-1"
             onDragOverCapture={handleCartListDragOverCapture}
             onDrop={handleCartDrop}
           >
@@ -3189,7 +3400,7 @@ export default function WholesalePOS() {
                     {cartDragFrom !== null && cartInsertBeforeK === index ? <DropIndicatorLine /> : null}
                     <div
                       data-cart-order-row
-                      className={`relative flex gap-1.5 rounded-md border border-gray-200 bg-white p-2 pr-7 transition-[opacity,box-shadow] ${
+                      className={`relative flex gap-1 rounded-md border border-gray-400 bg-white px-1.5 py-1 pr-6 transition-[opacity,box-shadow] ${
                         isDragging ? 'opacity-45 shadow-inner ring-1 ring-inset ring-blue-200/80' : ''
                       }`}
                     >
@@ -3201,31 +3412,34 @@ export default function WholesalePOS() {
                           handleCartDragStart(e, index);
                         }}
                         onDragEnd={resetCartDrag}
-                        className="flex shrink-0 items-start pt-0.5 text-gray-300 cursor-grab active:cursor-grabbing hover:text-gray-500"
+                        className="flex shrink-0 items-start pt-px text-gray-500 cursor-grab active:cursor-grabbing hover:text-gray-700"
                         title="드래그하여 순서 변경"
                         aria-label="순서 변경"
                       >
                         <GripVertical size={14} />
                       </div>
-                    <button type="button" onClick={() => removeCartItem(item.id)} className="absolute top-1 right-1 text-gray-400 hover:text-red-500 z-10"><Trash2 size={13} /></button>
+                    <button type="button" onClick={() => removeCartItem(item.id)} className="absolute top-0.5 right-0.5 text-gray-400 hover:text-red-500 z-10"><Trash2 size={12} /></button>
                     <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-0.5 leading-tight mb-0.5">
-                      <p className="text-xs font-bold text-gray-800 mr-1">{item.name}</p>
+                    <div className="flex flex-wrap items-center gap-0.5 leading-none mb-px">
+                      <p className="text-xs font-bold text-gray-800 mr-1 leading-none">{item.name}</p>
                       {item.usedCustomerPrice && <span className="bg-indigo-100 text-indigo-700 text-[9px] px-1 py-px rounded font-bold">거래처단가</span>}
                       {!item.usedCustomerPrice && item.originalPrice > item.price && <span className="bg-red-100 text-red-600 text-[9px] px-1 py-px rounded font-bold">세일</span>}
                       {misongQty > 0 && <span className="bg-orange-100 text-orange-600 text-[9px] px-1 py-px rounded font-bold border border-orange-200">미송{misongQty}</span>}
                     </div>
-                    <div className="flex justify-between items-center gap-1 mb-1 text-[10px] text-gray-500">
-                      <span className="truncate">{item.color}/{item.size} · ₩{item.price.toLocaleString()}</span>
-                      <span className="shrink-0 font-bold text-blue-600">재고{remainingStock}</span>
+                    <div className="flex justify-between items-center gap-1 mb-0.5 leading-none">
+                      <span className="truncate text-gray-500">
+                        <span className="text-xs">{item.color}/{item.size}</span>
+                        <span className="text-[10px]"> · ₩{item.price.toLocaleString()}</span>
+                      </span>
+                      <span className="shrink-0 text-[10px] font-bold text-blue-600">재고{remainingStock}</span>
                     </div>
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center leading-none">
                       <div className="flex items-center rounded border border-gray-200 text-xs">
-                        <button type="button" onClick={() => updateCartQty(item.id, -1)} className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 leading-none">−</button>
-                        <span className="min-w-[1.75rem] px-1 py-0.5 text-center font-bold tabular-nums">{item.qty}</span>
-                        <button type="button" onClick={() => updateCartQty(item.id, 1)} className="px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 leading-none">+</button>
+                        <button type="button" onClick={() => updateCartQty(item.id, -1)} className="px-1 py-px bg-gray-100 hover:bg-gray-200 leading-none">−</button>
+                        <span className="min-w-[1.5rem] px-0.5 py-px text-center font-bold tabular-nums">{item.qty}</span>
+                        <button type="button" onClick={() => updateCartQty(item.id, 1)} className="px-1 py-px bg-gray-100 hover:bg-gray-200 leading-none">+</button>
                       </div>
-                      <span className="text-xs font-bold text-gray-800 tabular-nums">₩{(item.price * item.qty).toLocaleString()}</span>
+                      <span className="text-xs font-bold text-gray-800 tabular-nums leading-none">₩{(item.price * item.qty).toLocaleString()}</span>
                     </div>
                     </div>
                   </div>
@@ -4010,7 +4224,7 @@ export default function WholesalePOS() {
   const renderProductDetailView = ({ inModal = false } = {}) => {
     if (!selectedProduct) return null;
 
-    const suppliers = customers.filter(c => c.type === '매입처');
+    const suppliers = getRestockSuppliers(customers);
 
     const tierCustomerRegex = makeChosungRegex(productCustomerPriceSearch);
     const tierSalesCustomers = customers.filter(c =>
@@ -4044,51 +4258,74 @@ export default function WholesalePOS() {
 
     const handleRestock = (isReturn = false) => {
       if (!productRestockSupplierId) {
-        showAlert('매입처를 선택하세요.');
+        showAlert(suppliers.length === 0 ? '등록된 매입처가 없습니다.' : '매입처를 선택하세요.');
         return;
       }
 
       const qty = Number(productRestockQty);
       if (qty > 0) {
-        let stockDelta = isReturn ? -qty : qty;
-        let newStock = selectedProduct.stock + stockDelta;
-
-        if (newStock < 0) {
+        if (isReturn && selectedProduct.stock - qty < 0) {
           showAlert('현재 재고보다 반품하려는 수량이 더 많습니다.');
           return;
         }
 
-        const newRestockedQty = isReturn ? (selectedProduct.restockedQty || 0) : (selectedProduct.restockedQty || 0) + qty;
-        const updatedProduct = { ...selectedProduct, stock: newStock, restockedQty: newRestockedQty };
-        
-        if (!isReturn && qty > 0 && updatedProduct.isEnded) {
-            updatedProduct.isEnded = false; 
+        let updatedProduct;
+        let returnMeta = null;
+        if (isReturn) {
+          const result = applySupplierReturnDeduction(selectedProduct, qty);
+          updatedProduct = result.product;
+          returnMeta = { fromRestock: result.fromRestock, fromInitial: result.fromInitial };
+        } else {
+          updatedProduct = {
+            ...selectedProduct,
+            stock: selectedProduct.stock + qty,
+            restockedQty: (selectedProduct.restockedQty || 0) + qty,
+          };
+        }
+
+        if (!isReturn && updatedProduct.isEnded) {
+          updatedProduct.isEnded = false;
         }
 
         setProducts(products.map(p => p.id === selectedProduct.id ? updatedProduct : p));
         setSelectedProduct(updatedProduct);
-        saveItem('products', updatedProduct); 
+        saveItem('products', updatedProduct);
 
         const now = new Date();
         const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
         const supplierName = customers.find(c => c.id === productRestockSupplierId)?.name;
 
-        const historyItem = {
-          id: `RS_${Date.now()}`,
-          date: productRestockDate, 
-          time: timeStr,
-          productId: selectedProduct.id,
-          productName: selectedProduct.name,
-          color: selectedProduct.color,
-          size: selectedProduct.size,
-          supplier: supplierName,
-          qty: isReturn ? -qty : qty,
-          type: isReturn ? '매입처반품' : '재입고'
-        };
+        const historyItem = isReturn
+          ? {
+              id: `RS_${Date.now()}`,
+              date: productRestockDate,
+              time: timeStr,
+              productId: selectedProduct.id,
+              productName: selectedProduct.name,
+              color: selectedProduct.color,
+              size: selectedProduct.size,
+              supplier: supplierName,
+              qty: -qty,
+              type: '매입처반품',
+              returnFromRestock: returnMeta.fromRestock,
+              returnFromInitial: returnMeta.fromInitial,
+            }
+          : {
+              id: `RS_${Date.now()}`,
+              date: productRestockDate,
+              time: timeStr,
+              productId: selectedProduct.id,
+              productName: selectedProduct.name,
+              color: selectedProduct.color,
+              size: selectedProduct.size,
+              supplier: supplierName,
+              qty,
+              type: '재입고',
+            };
         saveItem('restockHistory', historyItem);
 
         setProductRestockQty('');
-        setProductRestockSupplierId('');
+        setProductRestockSupplierId(resolveDefaultRestockSupplierId(suppliers));
         showAlert(`[${productRestockDate}] 날짜로 ${qty}장 ${isReturn ? '불량 반품' : '추가 입고'} 처리되었습니다.\n(입고 내역에 저장됨)`);
       } else {
         showAlert('올바른 수량을 입력하세요.');
@@ -4512,7 +4749,8 @@ export default function WholesalePOS() {
                       title="입고/반품 일자 선택"
                     />
                     <select
-                      value={productRestockSupplierId} onChange={(e) => setProductRestockSupplierId(e.target.value)}
+                      value={productRestockSupplierId}
+                      onChange={(e) => setProductRestockSupplierId(e.target.value)}
                       className="p-2 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white flex-1 min-w-[140px]"
                     >
                       <option value="">-- 매입처 선택 --</option>
@@ -4549,12 +4787,8 @@ export default function WholesalePOS() {
 
         const pIdx = products.findIndex(p => p.id === log.productId);
         if (pIdx !== -1) {
-          const updatedProduct = { ...products[pIdx] };
-          updatedProduct.stock = Math.max(0, updatedProduct.stock - log.qty);
-          if (log.type !== '매입처반품') {
-             updatedProduct.restockedQty = Math.max(0, (updatedProduct.restockedQty || 0) - log.qty);
-          }
-          
+          const updatedProduct = revertRestockLogOnProduct(products[pIdx], log);
+
           setProducts(prev => prev.map(p => p.id === log.productId ? updatedProduct : p));
           saveItem('products', updatedProduct);
 
@@ -4591,13 +4825,79 @@ export default function WholesalePOS() {
               </div>
             )}
             <div className="flex bg-gray-200 p-1 rounded-lg">
-              <button onClick={() => setRestockViewType('daily')} className={`px-4 py-1.5 rounded-md text-sm font-bold transition flex items-center ${restockViewType === 'daily' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><List size={16} className="mr-1"/>목록형</button>
               <button onClick={() => setRestockViewType('calendar')} className={`px-4 py-1.5 rounded-md text-sm font-bold transition flex items-center ${restockViewType === 'calendar' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><CalendarDays size={16} className="mr-1"/>달력형</button>
+              <button onClick={() => setRestockViewType('daily')} className={`px-4 py-1.5 rounded-md text-sm font-bold transition flex items-center ${restockViewType === 'daily' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><List size={16} className="mr-1"/>목록형</button>
             </div>
           </div>
         </div>
 
-        {restockViewType === 'daily' ? (() => {
+        {restockViewType === 'calendar' ? (() => {
+          const monthLogs = restockHistory.filter((h) => h.date.startsWith(restockSearchMonth));
+          let monthInitialQty = 0;
+          let monthRestockQty = 0;
+          monthLogs.forEach((h) => {
+            if (h.qty <= 0 || h.type === '매입처반품') return;
+            if (h.type === '초기입고') monthInitialQty += h.qty;
+            else monthRestockQty += h.qty;
+          });
+          const monthTotalInboundQty = monthInitialQty + monthRestockQty;
+
+          const mapData = {};
+          monthLogs.forEach((h) => {
+            if (!mapData[h.date]) mapData[h.date] = { qty: 0 };
+            mapData[h.date].qty += h.qty;
+          });
+
+          Object.keys(mapData).forEach((date) => {
+            mapData[date].content = (
+              <div className={`font-bold ${mapData[date].qty >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {mapData[date].qty >= 0 ? '입고: +' : '반품: '}{mapData[date].qty}장
+              </div>
+            );
+          });
+
+          return (
+            <div className="flex flex-col h-full overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
+               <div className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
+                  <div className="flex items-center space-x-3">
+                    <h3 className="font-bold text-gray-800">월 선택</h3>
+                    <input 
+                      type="month" 
+                      value={restockSearchMonth} 
+                      onChange={(e) => setRestockSearchMonth(e.target.value)}
+                      className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
+                    />
+                    <button 
+                      onClick={() => {
+                        setRestockSearchMonth(today.substring(0, 7));
+                      }}
+                      className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition"
+                    >
+                      이번 달
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
+                    <span>
+                      {restockSearchMonth === today.substring(0, 7) ? '이번 달' : '선택 월'} 총 입고{' '}
+                      <span className="font-bold text-gray-900 tabular-nums">{monthTotalInboundQty.toLocaleString()}장</span>
+                    </span>
+                    <span>
+                      초기입고{' '}
+                      <span className="font-bold text-indigo-700 tabular-nums">{monthInitialQty.toLocaleString()}장</span>
+                    </span>
+                    <span>
+                      재입고{' '}
+                      <span className="font-bold text-green-700 tabular-nums">{monthRestockQty.toLocaleString()}장</span>
+                    </span>
+                  </div>
+               </div>
+               {renderCalendar(restockSearchMonth, mapData, (dateStr) => {
+                 setRestockSearchDate(dateStr);
+                 setRestockViewType('daily');
+               })}
+            </div>
+          );
+        })() : (() => {
           const filteredHistory = restockHistory.filter(h => 
             h.date === restockSearchDate &&
             (restockRegex.test(getRestockProductName(products, h)) || (h.supplier && restockRegex.test(h.supplier)))
@@ -4693,46 +4993,6 @@ export default function WholesalePOS() {
                   </tfoot>
                 </table>
               </div>
-            </div>
-          );
-        })() : (() => {
-          const mapData = {};
-          restockHistory.filter(h => h.date.startsWith(restockSearchMonth)).forEach(h => {
-            if (!mapData[h.date]) mapData[h.date] = { qty: 0 };
-            mapData[h.date].qty += h.qty;
-          });
-          
-          Object.keys(mapData).forEach(date => {
-            mapData[date].content = (
-              <div className={`font-bold ${mapData[date].qty >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                {mapData[date].qty >= 0 ? '입고: +' : '반품: '}{mapData[date].qty}장
-              </div>
-            );
-          });
-
-          return (
-            <div className="flex flex-col h-full overflow-y-auto" onScroll={handleContainerScroll} ref={mainScrollRef}>
-               <div className="flex items-center space-x-3 mb-4 bg-white p-3 rounded-lg shadow-sm border border-gray-100 w-max">
-                  <h3 className="font-bold text-gray-800">월 선택</h3>
-                  <input 
-                    type="month" 
-                    value={restockSearchMonth} 
-                    onChange={(e) => setRestockSearchMonth(e.target.value)}
-                    className="p-1.5 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700"
-                  />
-                  <button 
-                    onClick={() => {
-                      setRestockSearchMonth(today.substring(0, 7));
-                    }}
-                    className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded-md text-sm font-bold hover:bg-blue-100 transition"
-                  >
-                    이번 달
-                  </button>
-               </div>
-               {renderCalendar(restockSearchMonth, mapData, (dateStr) => {
-                 setRestockSearchDate(dateStr);
-                 setRestockViewType('daily');
-               })}
             </div>
           );
         })()}
@@ -6442,6 +6702,7 @@ export default function WholesalePOS() {
         text,
         done: false,
         createdAt: getTodayStr(),
+        createdAtMs: Date.now(),
       };
       setTodoTasks((prev) => [task, ...prev]);
       saveItem('todoTasks', task);
@@ -6496,9 +6757,35 @@ export default function WholesalePOS() {
         content: '',
         color: STICKY_NOTE_COLORS[stickyMemos.length % STICKY_NOTE_COLORS.length],
         createdAt: getTodayStr(),
+        pinned: false,
+        sortOrder: Date.now(),
       };
       setStickyMemos((prev) => [memo, ...prev]);
       saveItem('stickyMemos', memo);
+    };
+
+    const toggleMemoPin = (memo) => {
+      let updated;
+      if (!memo.pinned) {
+        const maxPinnedOrder = stickyMemos
+          .filter((m) => m.pinned && m.id !== memo.id)
+          .reduce((max, m) => Math.max(max, m.sortOrder ?? 0), 0);
+        updated = {
+          ...memo,
+          pinned: true,
+          unpinnedSortOrder: memo.sortOrder ?? 0,
+          sortOrder: maxPinnedOrder + 1,
+        };
+      } else {
+        updated = {
+          ...memo,
+          pinned: false,
+          sortOrder: memo.unpinnedSortOrder ?? memo.sortOrder ?? Date.now(),
+          unpinnedSortOrder: null,
+        };
+      }
+      setStickyMemos((prev) => prev.map((m) => (m.id === memo.id ? updated : m)));
+      saveItem('stickyMemos', updated);
     };
 
     const handleMemoInput = (memo, content) => {
@@ -6521,6 +6808,7 @@ export default function WholesalePOS() {
     const pendingCount = todoTasks.filter((t) => !t.done).length;
     const pendingTasks = todoTasks.filter((t) => !t.done);
     const completedTasks = todoTasks.filter((t) => t.done);
+    const sortedMemos = sortStickyMemos(stickyMemos);
 
     const renderTaskItem = (task, isCompletedSection) => (
       <li
@@ -6568,13 +6856,20 @@ export default function WholesalePOS() {
         ) : (
           <>
             <div className="flex-1 min-w-0">
-              <p
-                className={`text-sm leading-snug break-words ${
-                  task.done ? 'line-through text-gray-400' : 'text-gray-800 font-medium'
-                }`}
-              >
-                {task.text}
-              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {!task.done && isTaskWithinNewWindow(task) && (
+                  <span className="shrink-0 rounded bg-red-500 px-1.5 py-px text-[9px] font-black tracking-wide text-white">
+                    NEW
+                  </span>
+                )}
+                <p
+                  className={`text-sm leading-snug break-words ${
+                    task.done ? 'line-through text-gray-400' : 'text-gray-800 font-medium'
+                  }`}
+                >
+                  {task.text}
+                </p>
+              </div>
               <p className="text-[11px] text-gray-400 mt-0.5 tabular-nums">
                 {task.createdAt || '-'}
                 {task.done && task.completedAt ? (
@@ -6690,7 +6985,7 @@ export default function WholesalePOS() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              {stickyMemos.length === 0 ? (
+              {sortedMemos.length === 0 ? (
                 <div className="h-full min-h-[12rem] flex flex-col items-center justify-center text-gray-500">
                   <StickyNote size={40} className="mb-3 text-amber-300" />
                   <p className="text-sm mb-3">포스트잇 메모가 없습니다.</p>
@@ -6704,15 +6999,35 @@ export default function WholesalePOS() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {stickyMemos.map((memo, idx) => (
+                  {sortedMemos.map((memo, idx) => (
                     <div
                       key={memo.id}
-                      className="relative group shadow-md hover:shadow-lg transition-shadow"
+                      className={`relative group shadow-md hover:shadow-lg transition-shadow ${
+                        memo.pinned ? 'ring-2 ring-amber-400/70' : ''
+                      }`}
                       style={{
                         backgroundColor: memo.color || STICKY_NOTE_COLORS[idx % STICKY_NOTE_COLORS.length],
                         transform: `rotate(${idx % 2 === 0 ? -1 : 1}deg)`,
                       }}
                     >
+                      <div className="flex items-center justify-end gap-1 px-2 pt-2 pb-0">
+                        {memo.pinned && (
+                          <span className="mr-auto text-[9px] font-bold text-amber-900/80">상단 고정</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => toggleMemoPin(memo)}
+                          className={`rounded-full p-1 transition ${
+                            memo.pinned
+                              ? 'bg-amber-700/20 text-amber-900 hover:bg-amber-700/30'
+                              : 'bg-black/5 text-gray-600 opacity-0 group-hover:opacity-100 hover:bg-black/10'
+                          }`}
+                          title={memo.pinned ? '고정 해제' : '상단 고정'}
+                          aria-label={memo.pinned ? '고정 해제' : '상단 고정'}
+                        >
+                          <Pin size={14} className={memo.pinned ? 'fill-current' : ''} />
+                        </button>
+                      </div>
                       <textarea
                         lang="ko"
                         style={{ imeMode: 'active' }}
@@ -6721,7 +7036,7 @@ export default function WholesalePOS() {
                         onBlur={(e) => handleMemoBlur(memo, e.target.value)}
                         placeholder="메모를 입력하세요..."
                         rows={5}
-                        className="sticky-note-scroll w-full min-h-[7.5rem] max-h-40 overflow-y-auto px-4 pt-4 pb-10 bg-transparent border-0 outline-none resize-none text-sm text-gray-800 placeholder:text-gray-500/70 leading-relaxed"
+                        className="sticky-note-scroll w-full min-h-[7.5rem] max-h-40 overflow-y-auto px-4 pt-1 pb-10 bg-transparent border-0 outline-none resize-none text-sm text-gray-800 placeholder:text-gray-500/70 leading-relaxed"
                       />
                       <button
                         type="button"
@@ -7316,10 +7631,20 @@ export default function WholesalePOS() {
               </div>
           </div>
 
-          <div className="mt-6 flex justify-end shrink-0">
+          <div className="mt-6 flex justify-between shrink-0 gap-3">
+            {type === '판매' && (
+              <button
+                type="button"
+                onClick={() => handleReprintSaleReceipt(saleDetailModal)}
+                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 font-bold shadow-md transition"
+              >
+                <Printer size={18} />
+                영수증 재출력
+              </button>
+            )}
             <button 
               onClick={() => setSaleDetailModal(null)}
-              className="px-8 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 font-bold shadow-md transition"
+              className={`px-8 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 font-bold shadow-md transition ${type === '판매' ? '' : 'ml-auto'}`}
             >
               닫기
             </button>
@@ -7356,7 +7681,12 @@ export default function WholesalePOS() {
                   className={`w-full flex items-center px-2.5 py-2.5 text-sm font-medium transition ${activeMenu === menuId ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}
                 >
                   <Icon className="mr-1.5 shrink-0" size={17} />
-                  <span className="truncate text-left leading-snug">{label}</span>
+                  <span className="truncate text-left leading-snug flex-1">{label}</span>
+                  {menuId === 'tasksMemo' && hasNewTodoTasks && (
+                    <span className="ml-1 shrink-0 rounded bg-red-500 px-1.5 py-px text-[9px] font-black tracking-wide text-white">
+                      NEW
+                    </span>
+                  )}
                 </button>
               );
             })}
