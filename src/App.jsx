@@ -1048,6 +1048,7 @@ export default function WholesalePOS() {
   const [salesReportSort, setSalesReportSort] = useState({ key: 'date', direction: 'desc' });
   
   const [saleDetailModal, setSaleDetailModal] = useState(null);
+  const [productStatsDetailModal, setProductStatsDetailModal] = useState(null);
   const [productDetailModalOpen, setProductDetailModalOpen] = useState(false);
   const [customerDetailModalOpen, setCustomerDetailModalOpen] = useState(false);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
@@ -1564,6 +1565,36 @@ export default function WholesalePOS() {
       .slice(0, 10);
   }, [dailySales, products, productStatsRangeStart, productStatsRangeEnd]);
 
+  const productStatsDetailBreakdown = useMemo(() => {
+    if (!productStatsDetailModal?.productId || !productStatsRangeStart || !productStatsRangeEnd) {
+      return { rows: [], totalQty: 0, rangeFrom: '', rangeTo: '' };
+    }
+    const rangeFrom =
+      productStatsRangeStart <= productStatsRangeEnd ? productStatsRangeStart : productStatsRangeEnd;
+    const rangeTo =
+      productStatsRangeEnd >= productStatsRangeStart ? productStatsRangeEnd : productStatsRangeStart;
+    const pid = productStatsDetailModal.productId;
+    const byCustomer = {};
+    dailySales.forEach((sale) => {
+      if (sale.type !== '판매') return;
+      if (!sale.date || sale.date < rangeFrom || sale.date > rangeTo) return;
+      if (!Array.isArray(sale.items)) return;
+      let saleQty = 0;
+      sale.items.forEach((item) => {
+        if (item.id === pid) saleQty += Number(item.qty) || 0;
+      });
+      if (saleQty > 0) {
+        const cn = sale.customerName || '(미지정)';
+        byCustomer[cn] = (byCustomer[cn] || 0) + saleQty;
+      }
+    });
+    const rows = Object.entries(byCustomer)
+      .map(([customerName, qty]) => ({ customerName, qty }))
+      .sort((a, b) => b.qty - a.qty || a.customerName.localeCompare(b.customerName, 'ko'));
+    const totalQty = rows.reduce((sum, row) => sum + row.qty, 0);
+    return { rows, totalQty, rangeFrom, rangeTo };
+  }, [productStatsDetailModal, dailySales, productStatsRangeStart, productStatsRangeEnd]);
+
   const salesStatsRows = useMemo(() => {
     const bucket = {};
 
@@ -1779,14 +1810,21 @@ export default function WholesalePOS() {
         return;
       }
 
-      if (productDetailModalOpen && e.key === 'Escape') {
-        e.preventDefault();
-        closeProductDetailModal();
-        return;
-      }
       if (customerDetailModalOpen && e.key === 'Escape') {
         e.preventDefault();
         closeCustomerDetailModal();
+        return;
+      }
+
+      if (productStatsDetailModal && e.key === 'Escape') {
+        e.preventDefault();
+        setProductStatsDetailModal(null);
+        return;
+      }
+
+      if (productDetailModalOpen && e.key === 'Escape') {
+        e.preventDefault();
+        closeProductDetailModal();
         return;
       }
       if (addProductModalOpen && e.key === 'Escape') {
@@ -1803,7 +1841,7 @@ export default function WholesalePOS() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modalConfig, saleDetailModal, restockEditForm, productDetailModalOpen, customerDetailModalOpen, addProductModalOpen, addCustomerModalOpen]);
+  }, [modalConfig, saleDetailModal, productStatsDetailModal, restockEditForm, productDetailModalOpen, customerDetailModalOpen, addProductModalOpen, addCustomerModalOpen]);
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
@@ -5418,11 +5456,33 @@ export default function WholesalePOS() {
                   return (
                     <div
                       key={row.productId}
-                      className="flex min-w-[4.25rem] w-0 flex-1 flex-col items-stretch sm:min-w-[5.25rem]"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        setProductStatsDetailModal({
+                          productId: row.productId,
+                          displayName: row.displayName,
+                          displayColor: row.displayColor,
+                          qty: row.qty,
+                        })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setProductStatsDetailModal({
+                            productId: row.productId,
+                            displayName: row.displayName,
+                            displayColor: row.displayColor,
+                            qty: row.qty,
+                          });
+                        }
+                      }}
+                      className="flex min-w-[4.25rem] w-0 flex-1 flex-col items-stretch cursor-pointer rounded-lg transition hover:bg-blue-50/80 sm:min-w-[5.25rem]"
+                      title="클릭 시 거래처별 판매 내역"
                     >
                       <div className="mx-auto flex h-52 w-full max-w-[3.25rem] shrink-0 items-end justify-center overflow-hidden rounded-t-md bg-gray-200/80 sm:h-60 sm:max-w-[4rem]">
                         <div
-                          className={`w-[72%] rounded-t-md ${barClass} transition-all duration-500`}
+                          className={`w-[72%] rounded-t-md ${barClass} transition-all duration-500 hover:opacity-90`}
                           style={{ height: `${pct}%`, minHeight: pct > 0 ? 4 : 0 }}
                         />
                       </div>
@@ -5779,8 +5839,30 @@ export default function WholesalePOS() {
       }
     });
 
+    const totalCustomerCount = customers.length;
+    const isCustomerListFiltered = customerListTab !== '전체' || !!customerSearchQuery.trim();
+
     return (
       <div className="p-6 h-full flex flex-col">
+        <div className="mb-4 shrink-0 flex flex-wrap items-center gap-4 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-white px-5 py-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-md">
+              <Users size={24} />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-500">총 거래처 수</p>
+              <p className="text-3xl font-black text-blue-700 tabular-nums leading-none">
+                {totalCustomerCount.toLocaleString()}
+                <span className="ml-1 text-xl font-bold text-gray-700">곳</span>
+              </p>
+            </div>
+          </div>
+          {isCustomerListFiltered && (
+            <div className="ml-auto text-sm text-gray-600">
+              현재 목록 <span className="font-bold text-gray-900 tabular-nums">{filteredCustomers.length.toLocaleString()}</span>곳
+            </div>
+          )}
+        </div>
         <div className="flex justify-between items-center mb-6 shrink-0">
           <div className="flex items-center space-x-4">
             <h2 className="text-2xl font-bold text-gray-800">업체 내역</h2>
@@ -5954,9 +6036,17 @@ export default function WholesalePOS() {
     const displayType = (!selectedCustomerDetail.type || selectedCustomerDetail.type === '판매처' || selectedCustomerDetail.type === '매출처') ? '판매처' : '매입처';
     const customerSales = dailySales.filter(sale => sale.customerName === selectedCustomerDetail.name);
     const totalAccumulated = customerTotalSales[selectedCustomerDetail.name] || 0;
+    const historyTotalQty = customerSales.reduce((sum, sale) => {
+      const q = sale.qty || 0;
+      return sum + (sale.type === '판매' ? q : -q);
+    }, 0);
+    const historyTotalAmount = customerSales.reduce((sum, sale) => {
+      const amount = (sale.actualPayment ?? 0) + (sale.appliedBalance ?? 0);
+      return sum + (sale.type === '판매' ? amount : -amount);
+    }, 0);
 
     return (
-      <div className={inModal ? 'p-5 flex flex-col min-h-0 w-full max-w-4xl' : 'px-6 pb-6 pt-2 h-full flex flex-col'}>
+      <div className={inModal ? 'p-5 flex flex-col min-h-0 w-full' : 'px-6 pb-6 pt-2 h-full flex flex-col'}>
         <div className="flex items-center justify-between mb-6 shrink-0 gap-3">
           <div className="flex items-center min-w-0">
             <h2 className="text-2xl font-bold text-gray-800">거래처 상세 정보</h2>
@@ -6063,15 +6153,22 @@ export default function WholesalePOS() {
                 <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center shrink-0">
                   <FileText className="mr-2 text-gray-500" size={20} /> 과거 거래 내역 모아보기
                 </h3>
-                <div className="border border-gray-200 rounded-lg flex-1 overflow-y-auto relative" onScroll={handleContainerScroll} ref={mainScrollRef}>
-                  <table className="w-full text-left text-sm">
+                <div className="border border-gray-200 rounded-lg flex-1 overflow-auto relative customer-history-scroll min-h-0" onScroll={inModal ? undefined : handleContainerScroll} ref={inModal ? undefined : mainScrollRef}>
+                  <table className="w-full min-w-[52rem] text-left text-sm table-fixed">
+                    <colgroup>
+                      <col className="w-[9.5rem]" />
+                      <col className="w-[5.5rem]" />
+                      <col />
+                      <col className="w-[5.5rem]" />
+                      <col className="w-[8.5rem]" />
+                    </colgroup>
                     <thead className="bg-gray-50 border-b sticky top-0 z-10 shadow-sm">
                       <tr>
-                        <th className="p-3 font-medium text-gray-600">일자 / 시간</th>
-                        <th className="p-3 font-medium text-gray-600 text-center">구분</th>
+                        <th className="p-3 font-medium text-gray-600 whitespace-nowrap">일자 / 시간</th>
+                        <th className="p-3 font-medium text-gray-600 text-center whitespace-nowrap">구분</th>
                         <th className="p-3 font-medium text-gray-600">거래 내용 (클릭 시 상세 팝업)</th>
-                        <th className="p-3 font-medium text-gray-600 text-right">수량</th>
-                        <th className="p-3 font-medium text-gray-600 text-right">결제 / 반품액</th>
+                        <th className="p-3 font-medium text-gray-600 text-right whitespace-nowrap">수량</th>
+                        <th className="p-3 font-medium text-gray-600 text-right whitespace-nowrap">결제 / 반품액</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -6081,15 +6178,15 @@ export default function WholesalePOS() {
                           className="hover:bg-blue-50 cursor-pointer transition-colors"
                           onClick={() => setSaleDetailModal(sale)} 
                         >
-                          <td className="p-3 text-gray-600">{sale.date} {sale.time}</td>
-                          <td className="p-3 text-center">
+                          <td className="p-3 text-gray-600 whitespace-nowrap">{sale.date} {sale.time}</td>
+                          <td className="p-3 text-center whitespace-nowrap">
                             <span className={`px-2 py-1 rounded text-[11px] font-bold ${sale.type === '판매' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
                               {sale.type}
                             </span>
                           </td>
-                          <td className="p-3 font-bold text-blue-600 hover:underline">{getSaleDisplayProductName(products, sale)}</td>
-                          <td className="p-3 font-medium text-right">{sale.qty}장</td>
-                          <td className={`p-3 font-bold text-right ${sale.type === '판매' ? 'text-gray-800' : 'text-gray-500'}`}>
+                          <td className="p-3 font-bold text-blue-600 hover:underline truncate">{getSaleDisplayProductName(products, sale)}</td>
+                          <td className="p-3 font-medium text-right whitespace-nowrap">{sale.qty}장</td>
+                          <td className={`p-3 font-bold text-right whitespace-nowrap ${sale.type === '판매' ? 'text-gray-800' : 'text-gray-500'}`}>
                             ₩ {Math.abs((sale.actualPayment ?? 0) + (sale.appliedBalance ?? 0)).toLocaleString()}
                           </td>
                         </tr>
@@ -6098,6 +6195,15 @@ export default function WholesalePOS() {
                         <tr><td colSpan="5" className="p-6 text-center text-gray-500">과거 거래 내역이 없습니다.</td></tr>
                       )}
                     </tbody>
+                    {customerSales.length > 0 && (
+                      <tfoot className="bg-gray-50 border-t-2 border-gray-200 sticky bottom-0 z-10">
+                        <tr>
+                          <td colSpan="3" className="p-3 font-bold text-gray-700 text-right whitespace-nowrap">합계</td>
+                          <td className="p-3 font-bold text-gray-800 text-right whitespace-nowrap">{historyTotalQty.toLocaleString()}장</td>
+                          <td className="p-3 font-bold text-gray-800 text-right whitespace-nowrap">₩ {historyTotalAmount.toLocaleString()}</td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>
@@ -7190,9 +7296,9 @@ export default function WholesalePOS() {
   const renderCustomerDetailModal = () => {
     if (!customerDetailModalOpen || !selectedCustomerDetail) return null;
     return (
-      <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4" onClick={closeCustomerDetailModal}>
-        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex justify-center" ref={detailModalScrollRef} onScroll={handleContainerScroll}>
+      <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[120] p-4" onClick={closeCustomerDetailModal}>
+        <div className="bg-gray-50 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col" ref={detailModalScrollRef}>
             {renderCustomerDetailView({ inModal: true })}
           </div>
         </div>
@@ -7533,6 +7639,116 @@ export default function WholesalePOS() {
   };
 
   // 거래 상세 내역 팝업 렌더링 함수 추가
+  const renderProductStatsDetailModal = () => {
+    if (!productStatsDetailModal) return null;
+
+    const { productId, displayName, displayColor } = productStatsDetailModal;
+    const { rows, totalQty, rangeFrom, rangeTo } = productStatsDetailBreakdown;
+    const periodLabel = rangeFrom && rangeTo ? `${rangeFrom} ~ ${rangeTo}` : '';
+
+    return (
+      <div
+        className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
+        onClick={() => setProductStatsDetailModal(null)}
+      >
+        <div
+          className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden ring-1 ring-gray-200/80"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-start gap-3 p-5 border-b shrink-0 bg-gray-50">
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <BarChart className="text-blue-600 shrink-0" size={22} />
+                거래처별 판매 내역
+              </h2>
+              <p className="mt-2 text-base font-bold text-gray-900 truncate" title={displayName}>
+                {displayName}
+              </p>
+              <p className="text-sm text-gray-600">
+                {displayColor} · <span className="font-mono text-gray-500">{productId}</span>
+              </p>
+              {periodLabel && (
+                <p className="mt-1 text-xs font-medium text-blue-700">{periodLabel}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setProductStatsDetailModal(null)}
+              className="shrink-0 rounded-full p-2 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-100 border-b sticky top-0 z-10">
+                <tr>
+                  <th className="p-3 font-bold text-gray-600">거래처</th>
+                  <th className="p-3 font-bold text-gray-600 text-right whitespace-nowrap">판매 수량</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan="2" className="p-8 text-center text-gray-500">
+                      선택한 기간에 이 상품의 판매 내역이 없습니다.
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => {
+                    const customer = customers.find((c) => c.name === row.customerName);
+                    return (
+                    <tr key={row.customerName} className="hover:bg-blue-50/60">
+                      <td className="p-3 font-medium text-gray-900">
+                        {customer ? (
+                          <button
+                            type="button"
+                            onClick={() => handleGoToCustomerDetail(customer)}
+                            className="font-bold text-blue-600 hover:text-blue-800 hover:underline text-left"
+                            title="클릭 시 거래처 상세 정보"
+                          >
+                            {row.customerName}
+                          </button>
+                        ) : (
+                          row.customerName
+                        )}
+                      </td>
+                      <td className="p-3 font-bold text-right text-blue-600 tabular-nums whitespace-nowrap">
+                        {row.qty.toLocaleString()}장
+                      </td>
+                    </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              {rows.length > 0 && (
+                <tfoot className="bg-gray-50 border-t-2 border-gray-200 sticky bottom-0">
+                  <tr>
+                    <td className="p-3 font-bold text-gray-700 text-right">합계</td>
+                    <td className="p-3 font-bold text-right text-gray-900 tabular-nums whitespace-nowrap">
+                      {totalQty.toLocaleString()}장
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          <div className="p-4 border-t shrink-0 flex justify-end bg-gray-50">
+            <button
+              type="button"
+              onClick={() => setProductStatsDetailModal(null)}
+              className="px-6 py-2.5 bg-gray-800 text-white rounded-lg hover:bg-gray-700 font-bold shadow-sm transition"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderSaleDetailModal = () => {
     if (!saleDetailModal) return null;
     
@@ -7732,6 +7948,7 @@ export default function WholesalePOS() {
       {renderAddProductModal()}
       {renderAddCustomerModal()}
       {renderRestockEditModal()}
+      {renderProductStatsDetailModal()}
       {renderSaleDetailModal()}
       
       {/* 팝업 모달: 다른 오버레이 위에 표시되도록 마지막 렌더 + 높은 z-index */}
