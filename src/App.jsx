@@ -6,7 +6,7 @@ import {
   CheckCircle, AlertCircle, ChevronRight, LogOut, Settings,
   UserPlus, ArrowLeft, TrendingUp, Calendar, BarChart, LineChart, Tag, Upload,
   ChevronUp, ChevronDown, Inbox, Printer, X, CalendarDays, List,
-  Wallet, Megaphone, Bell, ArrowUp, GripVertical, Truck, Merge, ClipboardList, StickyNote, Pencil, Camera, Pin
+  Wallet, Bell, ArrowUp, GripVertical, Truck, Merge, ClipboardList, StickyNote, Pencil, Camera, Pin
 } from 'lucide-react';
 
 const DELIVERY_FEE = 4000;
@@ -666,20 +666,30 @@ const MENU_CONFIG = {
   customers: { label: '업체 내역', Icon: Users },
   misong: { label: '미송 / 샘플 내역', Icon: FileText },
   cash: { label: '시재 관리', Icon: Wallet },
-  notice: { label: '공지사항', Icon: Megaphone },
   tasksMemo: { label: '할 일 / 메모', Icon: ClipboardList },
 };
 
 const STICKY_NOTE_COLORS = ['#fef9c3', '#fce7f3', '#d1fae5', '#dbeafe', '#ffedd5', '#e9d5ff'];
 
 const TASK_NEW_WINDOW_MS = 24 * 60 * 60 * 1000;
+const TASK_COMPLETED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
-const isTaskWithinNewWindow = (task) => {
-  if (!task) return false;
-  if (task.createdAtMs) return Date.now() - task.createdAtMs < TASK_NEW_WINDOW_MS;
-  if (task.createdAt) {
-    const createdStart = new Date(`${task.createdAt}T00:00:00`).getTime();
+const isWithinNewWindow = (item) => {
+  if (!item) return false;
+  if (item.createdAtMs) return Date.now() - item.createdAtMs < TASK_NEW_WINDOW_MS;
+  if (item.createdAt) {
+    const createdStart = new Date(`${item.createdAt}T00:00:00`).getTime();
     return Date.now() - createdStart < TASK_NEW_WINDOW_MS;
+  }
+  return false;
+};
+
+const isCompletedTaskExpired = (task) => {
+  if (!task?.done) return false;
+  if (task.completedAtMs) return Date.now() - task.completedAtMs >= TASK_COMPLETED_RETENTION_MS;
+  if (task.completedAt) {
+    const completedStart = new Date(`${task.completedAt}T00:00:00`).getTime();
+    return Date.now() - completedStart >= TASK_COMPLETED_RETENTION_MS;
   }
   return false;
 };
@@ -689,7 +699,7 @@ const sortStickyMemos = (memos) =>
     const aPinned = !!a.pinned;
     const bPinned = !!b.pinned;
     if (aPinned !== bPinned) return aPinned ? -1 : 1;
-    return (b.sortOrder ?? 0) - (a.sortOrder ?? 0);
+    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
   });
 
 const compressImageFile = (file, maxSize = 800, quality = 0.75) =>
@@ -1771,9 +1781,9 @@ export default function WholesalePOS() {
         const aPinned = !!a.pinned;
         const bPinned = !!b.pinned;
         if (aPinned !== bPinned) return aPinned ? -1 : 1;
-        const orderDiff = (b.sortOrder ?? 0) - (a.sortOrder ?? 0);
+        const orderDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
         if (orderDiff !== 0) return orderDiff;
-        return b.id.localeCompare(a.id);
+        return a.id.localeCompare(b.id);
       })
     ];
 
@@ -1845,10 +1855,19 @@ export default function WholesalePOS() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
 
-  const hasNewTodoTasks = useMemo(
-    () => todoTasks.some((t) => !t.done && isTaskWithinNewWindow(t)),
-    [todoTasks]
+  const hasNewTasksOrMemos = useMemo(
+    () =>
+      todoTasks.some((t) => !t.done && isWithinNewWindow(t)) ||
+      stickyMemos.some((m) => isWithinNewWindow(m)),
+    [todoTasks, stickyMemos]
   );
+
+  useEffect(() => {
+    const expiredIds = todoTasks.filter(isCompletedTaskExpired).map((t) => t.id);
+    if (expiredIds.length === 0) return;
+    expiredIds.forEach((id) => deleteItem('todoTasks', id));
+    setTodoTasks((prev) => prev.filter((t) => !expiredIds.includes(t.id)));
+  }, [todoTasks]);
 
   const resolveProductUnitPrice = (product, customerId) => {
     if (!product) return 0;
@@ -6821,6 +6840,7 @@ export default function WholesalePOS() {
         ...task,
         done: willDone,
         completedAt: willDone ? getTodayStr() : null,
+        completedAtMs: willDone ? Date.now() : null,
       };
       setTodoTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
       saveItem('todoTasks', updated);
@@ -6857,18 +6877,49 @@ export default function WholesalePOS() {
       });
     };
 
-    const handleAddMemo = () => {
+    const handleAddMemo = (size = 'normal') => {
       const memo = {
         id: `SM_${Date.now()}`,
         content: '',
         color: STICKY_NOTE_COLORS[stickyMemos.length % STICKY_NOTE_COLORS.length],
         createdAt: getTodayStr(),
+        createdAtMs: Date.now(),
         pinned: false,
         sortOrder: Date.now(),
+        size,
       };
-      setStickyMemos((prev) => [memo, ...prev]);
+      setStickyMemos((prev) => [...prev, memo]);
       saveItem('stickyMemos', memo);
     };
+
+    const renderAddMemoButtons = (buttonSize = 'sm') => (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => handleAddMemo('normal')}
+          className={`${
+            buttonSize === 'sm'
+              ? 'px-3 py-1.5 text-xs'
+              : 'px-4 py-2 text-sm'
+          } bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-bold flex items-center shadow-sm`}
+        >
+          <Plus size={buttonSize === 'sm' ? 14 : 16} className="mr-1" />
+          일반형 포스트잇
+        </button>
+        <button
+          type="button"
+          onClick={() => handleAddMemo('large')}
+          className={`${
+            buttonSize === 'sm'
+              ? 'px-3 py-1.5 text-xs'
+              : 'px-4 py-2 text-sm'
+          } bg-amber-600 text-white rounded-lg hover:bg-amber-700 font-bold flex items-center shadow-sm`}
+        >
+          <Plus size={buttonSize === 'sm' ? 14 : 16} className="mr-1" />
+          대형 포스트잇
+        </button>
+      </div>
+    );
 
     const toggleMemoPin = (memo) => {
       let updated;
@@ -6963,7 +7014,7 @@ export default function WholesalePOS() {
           <>
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
-                {!task.done && isTaskWithinNewWindow(task) && (
+                {!task.done && isWithinNewWindow(task) && (
                   <span className="shrink-0 rounded bg-red-500 px-1.5 py-px text-[9px] font-black tracking-wide text-white">
                     NEW
                   </span>
@@ -7058,8 +7109,11 @@ export default function WholesalePOS() {
                 </div>
               </div>
               <div className="flex-[1] min-h-0 flex flex-col overflow-hidden border-t-2 border-gray-200 bg-gray-50/80">
-                <div className="px-3 py-1.5 border-b border-gray-200 shrink-0 flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-500">완료</span>
+                <div className="px-3 py-1.5 border-b border-gray-200 shrink-0 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold text-gray-500">완료</span>
+                    <span className="text-[10px] font-medium text-gray-400">일주일 뒤 자동 삭제</span>
+                  </div>
                   {completedTasks.length > 0 && (
                     <span className="text-[10px] font-bold text-gray-400">{completedTasks.length}건</span>
                   )}
@@ -7077,53 +7131,53 @@ export default function WholesalePOS() {
 
           {/* 메모 */}
           <div className="flex flex-col min-h-0 flex-1 lg:flex-[1] rounded-xl shadow-sm border border-gray-100 overflow-hidden bg-[#f5f0e6]">
-            <div className="px-4 py-3 border-b border-amber-100/80 bg-amber-50/80 shrink-0 flex items-center justify-between">
+            <div className="px-4 py-3 border-b border-amber-100/80 bg-amber-50/80 shrink-0 flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-bold text-gray-800 flex items-center">
                 <StickyNote className="mr-2 text-amber-600" size={18} />
                 메모
               </h3>
-              <button
-                type="button"
-                onClick={handleAddMemo}
-                className="px-3 py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-bold text-xs flex items-center shadow-sm"
-              >
-                <Plus size={14} className="mr-1" /> 포스트잇 추가
-              </button>
+              {renderAddMemoButtons('sm')}
             </div>
             <div className="flex-1 overflow-y-auto p-4">
               {sortedMemos.length === 0 ? (
                 <div className="h-full min-h-[12rem] flex flex-col items-center justify-center text-gray-500">
                   <StickyNote size={40} className="mb-3 text-amber-300" />
                   <p className="text-sm mb-3">포스트잇 메모가 없습니다.</p>
-                  <button
-                    type="button"
-                    onClick={handleAddMemo}
-                    className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-bold text-sm shadow-sm"
-                  >
-                    첫 메모 추가
-                  </button>
+                  {renderAddMemoButtons('md')}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {sortedMemos.map((memo, idx) => (
+                  {sortedMemos.map((memo, idx) => {
+                    const isLargeMemo = memo.size === 'large';
+                    return (
                     <div
                       key={memo.id}
-                      className={`relative group shadow-md hover:shadow-lg transition-shadow ${
+                      className={`sticky-note-card relative group shadow-md hover:shadow-lg ${
                         memo.pinned ? 'ring-2 ring-amber-400/70' : ''
-                      }`}
+                      } ${isLargeMemo ? 'sm:col-span-2' : ''}`}
                       style={{
                         backgroundColor: memo.color || STICKY_NOTE_COLORS[idx % STICKY_NOTE_COLORS.length],
-                        transform: `rotate(${idx % 2 === 0 ? -1 : 1}deg)`,
+                        '--note-tilt': `${idx % 2 === 0 ? -1 : 1}deg`,
                       }}
                     >
-                      <div className="flex items-center justify-end gap-1 px-2 pt-2 pb-0">
-                        {memo.pinned && (
-                          <span className="mr-auto text-[9px] font-bold text-amber-900/80">상단 고정</span>
-                        )}
+                      {isWithinNewWindow(memo) && (
+                        <span className="absolute top-2 left-2 z-10 shrink-0 rounded bg-red-500 px-1.5 py-px text-[9px] font-black tracking-wide text-white shadow-sm">
+                          NEW
+                        </span>
+                      )}
+                      <div className="relative flex items-center px-2 pt-2 pb-0 min-h-[1.75rem]">
+                        <div className="flex flex-1 items-center min-w-0 pr-8">
+                          {memo.pinned && (
+                            <span className="text-[9px] font-bold text-amber-900/80">상단 고정</span>
+                          )}
+                        </div>
+                        <span className="absolute left-1/2 top-2 -translate-x-1/2 text-[9px] font-bold text-amber-900/70 tabular-nums whitespace-nowrap pointer-events-none">
+                          {memo.createdAt || '—'}
+                        </span>
                         <button
                           type="button"
                           onClick={() => toggleMemoPin(memo)}
-                          className={`rounded-full p-1 transition ${
+                          className={`ml-auto shrink-0 rounded-full p-1 transition ${
                             memo.pinned
                               ? 'bg-amber-700/20 text-amber-900 hover:bg-amber-700/30'
                               : 'bg-black/5 text-gray-600 opacity-0 group-hover:opacity-100 hover:bg-black/10'
@@ -7153,7 +7207,8 @@ export default function WholesalePOS() {
                         <Trash2 size={14} />
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -7756,7 +7811,7 @@ export default function WholesalePOS() {
     
     return (
       <div
-        className="fixed inset-0 bg-white/40 backdrop-blur-md flex items-center justify-center z-[110]"
+        className="fixed inset-0 bg-white/40 backdrop-blur-md flex items-center justify-center z-[130]"
         onClick={() => setSaleDetailModal(null)}
       >
         <div
@@ -7898,7 +7953,7 @@ export default function WholesalePOS() {
                 >
                   <Icon className="mr-1.5 shrink-0" size={17} />
                   <span className="truncate text-left leading-snug flex-1">{label}</span>
-                  {menuId === 'tasksMemo' && hasNewTodoTasks && (
+                  {menuId === 'tasksMemo' && hasNewTasksOrMemos && (
                     <span className="ml-1 shrink-0 rounded bg-red-500 px-1.5 py-px text-[9px] font-black tracking-wide text-white">
                       NEW
                     </span>
@@ -7920,7 +7975,7 @@ export default function WholesalePOS() {
 
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <main key={activeMenu} className="flex-1 min-h-0 overflow-hidden bg-gray-50 flex flex-col relative z-0">
-            {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'productStats', 'salesStats', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'notice', 'tasksMemo'].includes(activeMenu) && (
+            {menuHistory.length > 1 && !['dashboard', 'sales', 'salesReport', 'productStats', 'salesStats', 'inventory', 'restockHistory', 'customers', 'misong', 'cash', 'tasksMemo'].includes(activeMenu) && (
               <div className="px-6 pt-6 pb-2 shrink-0">
                 <button onClick={goBack} className="text-gray-500 hover:text-gray-800 transition flex items-center font-bold text-sm w-max">
                   <ArrowLeft size={16} className="mr-1"/> 뒤로가기

@@ -31,6 +31,29 @@
   background: rgba(0, 0, 0, 0.22);
 }
 
+/* 포스트잇: 기본 기울임 + 호버 시 살짝 움찔 */
+.sticky-note-card {
+  transform: rotate(var(--note-tilt, 0deg));
+  transition: box-shadow 0.2s ease;
+}
+.sticky-note-card:hover {
+  animation: sticky-note-wiggle 0.38s ease-in-out 1;
+}
+@keyframes sticky-note-wiggle {
+  0%, 100% {
+    transform: rotate(var(--note-tilt, 0deg)) translate(0, 0);
+  }
+  25% {
+    transform: rotate(calc(var(--note-tilt, 0deg) + 1.2deg)) translate(1px, -1px);
+  }
+  50% {
+    transform: rotate(calc(var(--note-tilt, 0deg) - 0.8deg)) translate(-1px, 0);
+  }
+  75% {
+    transform: rotate(calc(var(--note-tilt, 0deg) + 0.6deg)) translate(0, 1px);
+  }
+}
+
 /* 판매 장바구니: 스크롤바 자리 미리 확보 + 얇은 스크롤바 */
 .cart-list-scroll {
   scrollbar-gutter: stable;
